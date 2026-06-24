@@ -105,41 +105,43 @@ export default function FinanzasApp() {
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    let acc = [], mov = [], bc = [], inc = [], asg = [];
-    try { const r = storage.get("accounts"); acc = r ? JSON.parse(r.value) : []; } catch { acc = []; }
-    try { const r = storage.get("movements"); mov = r ? JSON.parse(r.value) : []; } catch { mov = []; }
-    try { const r = storage.get("budgetCategories"); bc = r ? JSON.parse(r.value) : []; } catch { bc = []; }
-    try { const r = storage.get("incomeTemplate"); inc = r ? JSON.parse(r.value) : []; } catch { inc = []; }
-    try { const r = storage.get("asignaciones"); asg = r ? JSON.parse(r.value) : []; } catch { asg = []; }
-    try { const r = storage.get("domingoRef"); if (r?.value) setDomingoRef(r.value); } catch {}
+    (async () => {
+      let acc = [], mov = [], bc = [], inc = [], asg = [];
+      try { const r = await storage.get("accounts"); acc = r ? JSON.parse(r.value) : []; } catch { acc = []; }
+      try { const r = await storage.get("movements"); mov = r ? JSON.parse(r.value) : []; } catch { mov = []; }
+      try { const r = await storage.get("budgetCategories"); bc = r ? JSON.parse(r.value) : []; } catch { bc = []; }
+      try { const r = await storage.get("incomeTemplate"); inc = r ? JSON.parse(r.value) : []; } catch { inc = []; }
+      try { const r = await storage.get("asignaciones"); asg = r ? JSON.parse(r.value) : []; } catch { asg = []; }
+      try { const r = await storage.get("domingoRef"); if (r?.value) setDomingoRef(r.value); } catch {}
 
-    if (acc.length === 0) {
-      acc = MIGRATED_ACCOUNTS;
-      mov = mov.length === 0 ? MIGRATED_MOVEMENTS : mov;
-      bc = bc.length === 0 ? MIGRATED_BUDGET : bc;
-      inc = inc.length === 0 ? MIGRATED_INCOME : inc;
-      storage.set("accounts", JSON.stringify(acc));
-      storage.set("movements", JSON.stringify(mov));
-      storage.set("budgetCategories", JSON.stringify(bc));
-      storage.set("incomeTemplate", JSON.stringify(inc));
-    }
+      if (acc.length === 0) {
+        acc = MIGRATED_ACCOUNTS;
+        mov = mov.length === 0 ? MIGRATED_MOVEMENTS : mov;
+        bc = bc.length === 0 ? MIGRATED_BUDGET : bc;
+        inc = inc.length === 0 ? MIGRATED_INCOME : inc;
+        await storage.set("accounts", JSON.stringify(acc));
+        await storage.set("movements", JSON.stringify(mov));
+        await storage.set("budgetCategories", JSON.stringify(bc));
+        await storage.set("incomeTemplate", JSON.stringify(inc));
+      }
 
-    setAccounts(acc);
-    setMovements(mov);
-    setBudgetCategories(bc.length > 0 ? bc : MIGRATED_BUDGET);
-    setIncomeTemplate(inc);
-    setAsignaciones(asg);
-    setLoaded(true);
+      setAccounts(acc);
+      setMovements(mov);
+      setBudgetCategories(bc.length > 0 ? bc : MIGRATED_BUDGET);
+      setIncomeTemplate(inc);
+      setAsignaciones(asg);
+      setLoaded(true);
+    })();
   }, []);
 
-  const saveDomingo = (val) => {
+  const saveDomingo = async (val) => {
     setDomingoRef(val);
-    storage.set("domingoRef", val);
+    await storage.set("domingoRef", val);
   };
 
-  const persist = (key, value) => {
-    const res = storage.set(key, JSON.stringify(value));
-    if (!res) setError(`No se pudo guardar (${key}).`);
+  const persist = async (key, value) => {
+    const res = await storage.set(key, JSON.stringify(value));
+    if (!res) setError(`No se pudo guardar (${key}). Verifica tu conexión.`);
     return res;
   };
 
