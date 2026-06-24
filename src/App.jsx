@@ -214,7 +214,7 @@ export default function FinanzasApp() {
 
       <div style={{ maxWidth: 720, margin: "0 auto", padding: "20px 20px 100px" }}>
         {error && <div style={{ background: "#B1645B", color: "#fff", padding: 10, borderRadius: 8, marginBottom: 16, fontSize: 13, display: "flex", justifyContent: "space-between" }}>{error}<button onClick={() => setError(null)} style={{ background: "none", border: "none", color: "#fff" }}><X size={14} /></button></div>}
-        {tab === "presupuesto" && <PresupuestoView budgetCategories={budgetCategories} movements={movements} accounts={accounts} periodo={periodo} ciclo={ciclo} onUpdateBudget={updateSubcategoryBudget} onAddSubcategory={addSubcategory} onDeleteSubcategory={deleteSubcategory} onAddCategory={addCategory} onDeleteCategory={deleteCategory} />}
+        {tab === "presupuesto" && <PresupuestoView budgetCategories={budgetCategories} movements={movements} accounts={accounts} periodo={periodo} ciclo={ciclo} onUpdateBudget={updateSubcategoryBudget} onAddSubcategory={addSubcategory} onDeleteSubcategory={deleteSubcategory} onAddCategory={addCategory} onDeleteCategory={deleteCategory} onDelete={deleteMovement} />}
         {tab === "apartados" && <ApartadosView accounts={accounts} movements={movements} incomeTemplate={incomeTemplate} asignaciones={asignaciones} ciclo={ciclo} semanasApartado={semanasApartado} onAddIncome={addIncomeTemplate} onDeleteIncome={deleteIncomeTemplate} onAddAsignacion={addAsignacion} onDeleteAsignacion={deleteAsignacion} />}
         {tab === "cuentas" && <CuentasView accounts={accounts} movements={movements} budgetCategories={budgetCategories} domingoRef={domingoRef} onSaveDomingo={saveDomingo} ciclo={ciclo} semanasGasto={semanasGasto} onAddAccount={() => setShowAddAcc(true)} onDeleteAccount={deleteAccount} />}
       </div>
@@ -226,7 +226,7 @@ export default function FinanzasApp() {
   );
 }
 
-function PresupuestoView({ budgetCategories, movements, accounts, periodo, ciclo, onUpdateBudget, onAddSubcategory, onDeleteSubcategory, onAddCategory, onDeleteCategory }) {
+function PresupuestoView({ budgetCategories, movements, accounts, periodo, ciclo, onUpdateBudget, onAddSubcategory, onDeleteSubcategory, onAddCategory, onDeleteCategory, onDelete }) {
   const [openCat, setOpenCat] = useState(null);
   const [openSub, setOpenSub] = useState(null);
   const [editingSub, setEditingSub] = useState(null);
@@ -251,7 +251,10 @@ function PresupuestoView({ budgetCategories, movements, accounts, periodo, ciclo
             <div style={{ fontSize: 11, color: "#A39E8F" }}>{new Date(m.date+"T00:00:00").toLocaleDateString("es-MX",{day:"numeric",month:"short"})} · {acc?.name || "—"}</div>
           </div>
         </div>
-        <div style={{ fontSize: 12, fontWeight: 600, color: "#B1645B" }}>−{fmt(m.amount)}</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "#B1645B" }}>−{fmt(m.amount)}</div>
+          <button onClick={() => onDelete(m.id)} style={{ background: "none", border: "none", color: "#C9BFA8", padding: 2 }}><Trash2 size={13} /></button>
+        </div>
       </div>
     );
   };
@@ -361,8 +364,11 @@ function PresupuestoView({ budgetCategories, movements, accounts, periodo, ciclo
                         </div>
                       </div>
                     </div>
-                    <div className="dp" style={{ fontSize: 14, fontWeight: 600, color: m.kind === "ingreso" ? "#6B8F71" : "#B1645B" }}>
-                      {m.kind === "ingreso" ? "+" : "−"}{fmt(m.amount)}
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <div className="dp" style={{ fontSize: 14, fontWeight: 600, color: m.kind === "ingreso" ? "#6B8F71" : "#B1645B" }}>
+                        {m.kind === "ingreso" ? "+" : "−"}{fmt(m.amount)}
+                      </div>
+                      <button onClick={() => onDelete(m.id)} style={{ background: "none", border: "none", color: "#C9BFA8", padding: 2 }}><Trash2 size={13} /></button>
                     </div>
                   </div>
                 );
