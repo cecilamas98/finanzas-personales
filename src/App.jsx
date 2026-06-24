@@ -140,9 +140,11 @@ export default function FinanzasApp() {
   };
 
   const persist = async (key, value) => {
-    const res = await storage.set(key, JSON.stringify(value));
-    if (!res) setError(`No se pudo guardar (${key}). Verifica tu conexión.`);
-    return res;
+    try {
+      await storage.set(key, JSON.stringify(value));
+    } catch (e) {
+      setError(`No se pudo guardar (${key}). Verifica tu conexión.`);
+    }
   };
 
   const addAccount = (a) => { const n = [...accounts, { ...a, id: "acc_" + Date.now() }]; setAccounts(n); persist("accounts", n); };
