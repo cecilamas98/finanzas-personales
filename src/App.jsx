@@ -155,6 +155,16 @@ export default function FinanzasApp() {
   const deleteIncomeTemplate = (id) => { const n = incomeTemplate.filter((i) => i.id !== id); setIncomeTemplate(n); persist("incomeTemplate", n); const na = asignaciones.filter((a) => a.incomeTemplateId !== id); setAsignaciones(na); persist("asignaciones", na); };
   const addAsignacion = (a) => { const n = [...asignaciones, { ...a, id: "asg_" + Date.now() }]; setAsignaciones(n); persist("asignaciones", n); };
   const deleteAsignacion = (id) => { const n = asignaciones.filter((a) => a.id !== id); setAsignaciones(n); persist("asignaciones", n); };
+
+  // Compromisos de efectivo: gastos proyectados en débito por semana
+  const [compromisos, setCompromisos] = useState([]);
+  useEffect(() => {
+    (async () => {
+      try { const r = await storage.get("compromisos"); setCompromisos(r ? JSON.parse(r.value) : []); } catch { setCompromisos([]); }
+    })();
+  }, []);
+  const addCompromiso = (c) => { const n = [...compromisos, { ...c, id: "com_" + Date.now() }]; setCompromisos(n); persist("compromisos", n); };
+  const deleteCompromiso = (id) => { const n = compromisos.filter((c) => c.id !== id); setCompromisos(n); persist("compromisos", n); };
   const updateSubcategoryBudget = (catId, subId, b) => { const n = budgetCategories.map((c) => c.id === catId ? { ...c, subcategories: c.subcategories.map((s) => s.id === subId ? { ...s, budget: b } : s) } : c); setBudgetCategories(n); persist("budgetCategories", n); };
   const addSubcategory = (catId, name, budget) => { const n = budgetCategories.map((c) => c.id === catId ? { ...c, subcategories: [...c.subcategories, { id: "sub_" + Date.now(), name, budget }] } : c); setBudgetCategories(n); persist("budgetCategories", n); };
   const deleteSubcategory = (catId, subId) => { const n = budgetCategories.map((c) => c.id === catId ? { ...c, subcategories: c.subcategories.filter((s) => s.id !== subId) } : c); setBudgetCategories(n); persist("budgetCategories", n); };
@@ -217,7 +227,7 @@ export default function FinanzasApp() {
       <div style={{ maxWidth: 720, margin: "0 auto", padding: "20px 20px 100px" }}>
         {error && <div style={{ background: "#B1645B", color: "#fff", padding: 10, borderRadius: 8, marginBottom: 16, fontSize: 13, display: "flex", justifyContent: "space-between" }}>{error}<button onClick={() => setError(null)} style={{ background: "none", border: "none", color: "#fff" }}><X size={14} /></button></div>}
         {tab === "presupuesto" && <PresupuestoView budgetCategories={budgetCategories} movements={movements} accounts={accounts} periodo={periodo} ciclo={ciclo} onUpdateBudget={updateSubcategoryBudget} onAddSubcategory={addSubcategory} onDeleteSubcategory={deleteSubcategory} onAddCategory={addCategory} onDeleteCategory={deleteCategory} onDelete={deleteMovement} />}
-        {tab === "apartados" && <ApartadosView accounts={accounts} movements={movements} incomeTemplate={incomeTemplate} asignaciones={asignaciones} ciclo={ciclo} semanasApartado={semanasApartado} onAddIncome={addIncomeTemplate} onDeleteIncome={deleteIncomeTemplate} onAddAsignacion={addAsignacion} onDeleteAsignacion={deleteAsignacion} />}
+        {tab === "apartados" && <ApartadosView accounts={accounts} movements={movements} incomeTemplate={incomeTemplate} asignaciones={asignaciones} compromisos={compromisos} ciclo={ciclo} semanasApartado={semanasApartado} onAddIncome={addIncomeTemplate} onDeleteIncome={deleteIncomeTemplate} onAddAsignacion={addAsignacion} onDeleteAsignacion={deleteAsignacion} onAddCompromiso={addCompromiso} onDeleteCompromiso={deleteCompromiso} />}
         {tab === "cuentas" && <CuentasView accounts={accounts} movements={movements} budgetCategories={budgetCategories} domingoRef={domingoRef} onSaveDomingo={saveDomingo} ciclo={ciclo} semanasGasto={semanasGasto} onAddAccount={() => setShowAddAcc(true)} onDeleteAccount={deleteAccount} />}
       </div>
 
@@ -422,16 +432,16 @@ function AddCategoryInline({ onCancel, onSave }) {
 }
 
 
-function ApartadosView({ accounts, movements, incomeTemplate, asignaciones, ciclo, semanasApartado, onAddIncome, onDeleteIncome, onAddAsignacion, onDeleteAsignacion }) {
+function ApartadosView({ accounts, movements, incomeTemplate, asignaciones, compromisos, ciclo, semanasApartado, onAddIncome, onDeleteIncome, onAddAsignacion, onDeleteAsignacion, onAddCompromiso, onDeleteCompromiso }) {
   const creditAccounts = accounts.filter((a) => a.type === "Crédito");
   const debitAccounts = accounts.filter((a) => a.type === "Débito");
   const [showAddIncome, setShowAddIncome] = useState(false);
   const [assignFor, setAssignFor] = useState(null);
+  const [addingCompromisoFor, setAddingCompromisoFor] = useState(null); // weekIdx
 
   const totalDeudaFor = (accId) => movements
     .filter((m) => m.accountId === accId && m.kind === "gasto" && m.date >= ciclo.inicio && m.date <= ciclo.finGasto)
     .reduce((s, m) => s + Number(m.amount), 0);
-
   const asignadoFor = (accId) => asignaciones
     .filter((a) => a.creditAccountId === accId && a.pagoISO === ciclo.pago)
     .reduce((s, a) => s + Number(a.amount), 0);
@@ -445,52 +455,71 @@ function ApartadosView({ accounts, movements, incomeTemplate, asignaciones, cicl
 
   return (
     <div>
-      <div style={{ background: "#fff", border: "1px solid #E5DFD0", borderRadius: 14, padding: 16, marginBottom: 16 }}>
-        <div style={{ fontSize: 12, color: "#7A7568", marginBottom: 2 }}>Gastos de {ciclo.label} · se pagan el {new Date(ciclo.pago+"T00:00:00").toLocaleDateString("es-MX",{day:"numeric",month:"long"})}</div>
-        <div style={{ fontSize: 12, color: "#A39E8F" }}>
-          Gasto {new Date(ciclo.inicio+"T00:00:00").toLocaleDateString("es-MX",{day:"numeric",month:"short"})} – {new Date(ciclo.finGasto+"T00:00:00").toLocaleDateString("es-MX",{day:"numeric",month:"short"})} · Apartados {new Date(ciclo.inicioApartado+"T00:00:00").toLocaleDateString("es-MX",{day:"numeric",month:"short"})} – {new Date(ciclo.pago+"T00:00:00").toLocaleDateString("es-MX",{day:"numeric",month:"short"})}
-        </div>
-      </div>
+      {/* Resumen deuda por tarjeta */}
       <div style={{ display: "grid", gap: 10, marginBottom: 20 }}>
         {creditAccounts.map((acc) => {
-          const deuda = totalDeudaFor(acc.id); const asignado = asignadoFor(acc.id); const falta = Math.max(0, deuda - asignado); const pct = deuda > 0 ? Math.min(100, (asignado / deuda) * 100) : 0;
+          const deuda = totalDeudaFor(acc.id);
+          const asignado = asignadoFor(acc.id);
+          const falta = Math.max(0, deuda - asignado);
+          const pct = deuda > 0 ? Math.min(100, (asignado / deuda) * 100) : 0;
           return (
             <div key={acc.id} style={{ background: "#fff", border: "1px solid #E5DFD0", borderRadius: 14, padding: 14 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}><div style={{ width: 9, height: 9, borderRadius: "50%", background: acc.color }} /><div style={{ fontSize: 13, fontWeight: 600 }}>{acc.name}</div></div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div style={{ width: 9, height: 9, borderRadius: "50%", background: acc.color }} />
+                  <div style={{ fontSize: 13, fontWeight: 600 }}>{acc.name}</div>
+                </div>
                 <div className="dp" style={{ fontSize: 15, fontWeight: 600 }}>{fmt(deuda)}</div>
               </div>
-              <div style={{ height: 6, background: "#F0ECE0", borderRadius: 3, marginBottom: 6 }}><div style={{ height: "100%", width: `${pct}%`, background: falta === 0 ? "#6B8F71" : "#C9A04D", borderRadius: 3 }} /></div>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#A39E8F" }}><span>Asignado: {fmt(asignado)}</span><span>{falta === 0 ? "Cubierto ✓" : `Falta: ${fmt(falta)}`}</span></div>
+              <div style={{ height: 6, background: "#F0ECE0", borderRadius: 3, marginBottom: 6 }}>
+                <div style={{ height: "100%", width: `${pct}%`, background: falta === 0 ? "#6B8F71" : "#C9A04D", borderRadius: 3 }} />
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#A39E8F" }}>
+                <span>Asignado: {fmt(asignado)}</span>
+                <span>{falta === 0 ? "Cubierto ✓" : `Falta: ${fmt(falta)}`}</span>
+              </div>
             </div>
           );
         })}
       </div>
+
+      {/* Header ingresos */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: "#7A7568", textTransform: "uppercase", letterSpacing: 0.5 }}>Ingresos por semana</div>
+        <div style={{ fontSize: 13, fontWeight: 600, color: "#7A7568", textTransform: "uppercase", letterSpacing: 0.5 }}>Plan semanal</div>
         <button onClick={() => setShowAddIncome(true)} style={{ background: "none", border: "none", color: "#D87554", fontSize: 12, fontWeight: 600, display: "flex", alignItems: "center", gap: 4 }}><Plus size={14} /> Ingreso recurrente</button>
       </div>
+
+      {/* Semanas */}
       <div style={{ display: "grid", gap: 14, marginBottom: 16 }}>
         {semanasApartado.map((w, i) => {
           const weekIdx = i + 1;
           const incomesThisWeek = incomeTemplate.filter((inc) => inc.weeks.includes(weekIdx));
           const totalIncomeWeek = incomesThisWeek.reduce((s, inc) => s + Number(inc.amount), 0);
           const asignacionesWeek = asignaciones.filter((a) => a.pagoISO === ciclo.pago && a.weekIdx === weekIdx);
-          const totalAsignadoWeek = asignacionesWeek.reduce((s, a) => s + Number(a.amount), 0);
-          const libre = totalIncomeWeek - totalAsignadoWeek;
-          const fase = weekIdx <= 2 ? "Gasta con tarjeta" : "Paga tarjeta · efectivo";
+          const totalAsignadoTarjetas = asignacionesWeek.reduce((s, a) => s + Number(a.amount), 0);
+          const compromisosWeek = compromisos.filter((c) => c.pagoISO === ciclo.pago && c.weekIdx === weekIdx);
+          const totalCompromisos = compromisosWeek.reduce((s, c) => s + Number(c.amount), 0);
+          const libre = totalIncomeWeek - totalAsignadoTarjetas - totalCompromisos;
           const rng = `${new Date(w.start + "T00:00:00").toLocaleDateString("es-MX", { day: "numeric", month: "short" })} – ${new Date(w.end + "T00:00:00").toLocaleDateString("es-MX", { day: "numeric", month: "short" })}`;
+
           return (
             <div key={weekIdx} style={{ background: "#fff", border: "1px solid #E5DFD0", borderRadius: 14, overflow: "hidden" }}>
+              {/* Header semana */}
               <div style={{ padding: "12px 16px", background: "#FAF8F2", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <div><div style={{ fontSize: 13, fontWeight: 600 }}>Semana {weekIdx}</div><div style={{ fontSize: 10, color: "#A39E8F" }}>{rng} · {fase}</div></div>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600 }}>Semana {weekIdx}</div>
+                  <div style={{ fontSize: 10, color: "#A39E8F" }}>{rng}</div>
+                </div>
                 <div className="dp" style={{ fontSize: 15, fontWeight: 600 }}>{fmt(totalIncomeWeek)}</div>
               </div>
-              {incomesThisWeek.length === 0 ? <div style={{ padding: "12px 16px", fontSize: 12, color: "#A39E8F" }}>Sin ingreso programado.</div>
+
+              {/* Ingresos y asignaciones a tarjetas */}
+              {incomesThisWeek.length === 0
+                ? <div style={{ padding: "12px 16px", fontSize: 12, color: "#A39E8F" }}>Sin ingreso programado esta semana.</div>
                 : incomesThisWeek.map((inc) => {
                     const asigInc = asignaciones.filter((a) => a.pagoISO === ciclo.pago && a.weekIdx === weekIdx && a.incomeTemplateId === inc.id);
                     const usadoInc = asigInc.reduce((s, a) => s + Number(a.amount), 0);
-                    const libreInc = Number(inc.amount) - usadoInc;
+                    const libreInc = Number(inc.amount) - usadoInc - compromisosWeek.filter(c => c.incomeTemplateId === inc.id).reduce((s,c) => s + Number(c.amount), 0);
                     const accD = accounts.find((a) => a.id === inc.accountId);
                     return (
                       <div key={inc.id} style={{ padding: "10px 16px", borderTop: "1px solid #F0ECE0" }}>
@@ -498,30 +527,67 @@ function ApartadosView({ accounts, movements, incomeTemplate, asignaciones, cicl
                           <div style={{ fontSize: 12, fontWeight: 600 }}>{inc.person} <span style={{ color: "#A39E8F", fontWeight: 400 }}>· {accD?.name}</span></div>
                           <div style={{ fontSize: 12, fontWeight: 600 }}>{fmt(inc.amount)}</div>
                         </div>
+
+                        {/* Asignaciones a tarjetas */}
                         {asigInc.map((a) => {
                           const credAcc = accounts.find((x) => x.id === a.creditAccountId);
                           return (
                             <div key={a.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 0 4px 12px", fontSize: 12 }}>
-                              <div style={{ display: "flex", alignItems: "center", gap: 6, color: "#7A7568" }}><div style={{ width: 6, height: 6, borderRadius: "50%", background: credAcc?.color }} />→ {credAcc?.name}</div>
-                              <div style={{ display: "flex", alignItems: "center", gap: 6 }}><span style={{ fontWeight: 600 }}>{fmt(a.amount)}</span><button onClick={() => onDeleteAsignacion(a.id)} style={{ background: "none", border: "none", color: "#C9BFA8" }}><X size={12} /></button></div>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6, color: "#7A7568" }}>
+                                <div style={{ width: 6, height: 6, borderRadius: "50%", background: credAcc?.color }} />
+                                → {credAcc?.name} <span style={{ fontSize: 10, color: "#A39E8F" }}>(tarjeta)</span>
+                              </div>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                <span style={{ fontWeight: 600 }}>{fmt(a.amount)}</span>
+                                <button onClick={() => onDeleteAsignacion(a.id)} style={{ background: "none", border: "none", color: "#C9BFA8" }}><X size={12} /></button>
+                              </div>
                             </div>
                           );
                         })}
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 6 }}>
-                          <span style={{ fontSize: 11, color: libreInc > 0 ? "#C9A04D" : "#A39E8F" }}>{libreInc > 0 ? `Sin asignar: ${fmt(libreInc)}` : "Totalmente asignado"}</span>
-                          {libreInc > 0 && <button onClick={() => setAssignFor({ weekIdx, incomeId: inc.id, remaining: libreInc })} style={{ fontSize: 11, color: "#D87554", background: "none", border: "none", fontWeight: 600 }}>+ Asignar a tarjeta</button>}
+
+                        {/* Compromisos de efectivo */}
+                        {compromisosWeek.filter(c => c.incomeTemplateId === inc.id).map((c) => (
+                          <div key={c.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 0 4px 12px", fontSize: 12 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6, color: "#7A7568" }}>
+                              <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#6B8F71" }} />
+                              → {c.label} <span style={{ fontSize: 10, color: "#A39E8F" }}>(débito)</span>
+                            </div>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                              <span style={{ fontWeight: 600 }}>{fmt(c.amount)}</span>
+                              <button onClick={() => onDeleteCompromiso(c.id)} style={{ background: "none", border: "none", color: "#C9BFA8" }}><X size={12} /></button>
+                            </div>
+                          </div>
+                        ))}
+
+                        {/* Botones de asignar */}
+                        <div style={{ display: "flex", gap: 8, marginTop: 6, alignItems: "center" }}>
+                          <span style={{ fontSize: 11, color: libreInc > 0 ? "#C9A04D" : "#A39E8F", flex: 1 }}>
+                            {libreInc > 0 ? `Sin asignar: ${fmt(libreInc)}` : "Totalmente asignado"}
+                          </span>
+                          {libreInc > 0 && (<>
+                            <button onClick={() => setAssignFor({ weekIdx, incomeId: inc.id, remaining: libreInc })} style={{ fontSize: 11, color: "#D87554", background: "none", border: "1px solid #D87554", borderRadius: 8, padding: "3px 8px", fontWeight: 600 }}>+ Tarjeta</button>
+                            <button onClick={() => setAddingCompromisoFor({ weekIdx, incomeId: inc.id, remaining: libreInc })} style={{ fontSize: 11, color: "#6B8F71", background: "none", border: "1px solid #6B8F71", borderRadius: 8, padding: "3px 8px", fontWeight: 600 }}>+ Débito</button>
+                          </>)}
                         </div>
                       </div>
                     );
                   })
               }
-              <div style={{ padding: "8px 16px", borderTop: "1px solid #F0ECE0", display: "flex", justifyContent: "space-between", fontSize: 11, color: libre > 0 ? "#6B8F71" : "#A39E8F" }}>
-                <span>Libre esta semana</span><span style={{ fontWeight: 600 }}>{fmt(libre)}</span>
+
+              {/* Resumen libre */}
+              <div style={{ padding: "8px 16px", borderTop: "1px solid #F0ECE0", display: "flex", justifyContent: "space-between", fontSize: 11 }}>
+                <div style={{ display: "flex", gap: 12 }}>
+                  <span style={{ color: "#B1645B" }}>Tarjetas: {fmt(totalAsignadoTarjetas)}</span>
+                  <span style={{ color: "#6B8F71" }}>Débito: {fmt(totalCompromisos)}</span>
+                </div>
+                <span style={{ fontWeight: 600, color: libre > 0 ? "#C9A04D" : "#A39E8F" }}>Libre: {fmt(Math.max(0, libre))}</span>
               </div>
             </div>
           );
         })}
       </div>
+
+      {/* Ingresos configurados */}
       {incomeTemplate.length > 0 && (
         <div style={{ marginBottom: 8 }}>
           <div style={{ fontSize: 11, color: "#A39E8F", marginBottom: 6 }}>Ingresos recurrentes:</div>
@@ -533,8 +599,10 @@ function ApartadosView({ accounts, movements, incomeTemplate, asignaciones, cicl
           ))}
         </div>
       )}
+
       {showAddIncome && <AddIncomeModal accounts={debitAccounts} onClose={() => setShowAddIncome(false)} onSave={(inc) => { onAddIncome(inc); setShowAddIncome(false); }} />}
       {assignFor && <AssignModal info={assignFor} creditAccounts={creditAccounts} deudaPendiente={(accId) => Math.max(0, totalDeudaFor(accId) - asignadoFor(accId))} onClose={() => setAssignFor(null)} onSave={(creditAccountId, amount) => { onAddAsignacion({ pagoISO: ciclo.pago, weekIdx: assignFor.weekIdx, incomeTemplateId: assignFor.incomeId, creditAccountId, amount }); setAssignFor(null); }} />}
+      {addingCompromisoFor && <CompromisoModal info={addingCompromisoFor} onClose={() => setAddingCompromisoFor(null)} onSave={(label, amount) => { onAddCompromiso({ pagoISO: ciclo.pago, weekIdx: addingCompromisoFor.weekIdx, incomeTemplateId: addingCompromisoFor.incomeId, label, amount }); setAddingCompromisoFor(null); }} />}
     </div>
   );
 }
@@ -701,6 +769,22 @@ function AddAccountModal({ onClose, onSave }) {
       <label style={lS}>Color</label>
       <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>{ACCOUNT_COLORS.map((c) => <button key={c} onClick={() => setColor(c)} style={{ width: 28, height: 28, borderRadius: "50%", background: c, border: color === c ? "2.5px solid #1C2541" : "2px solid transparent" }} />)}</div>
       <button onClick={submit} style={{ width: "100%", padding: 14, background: "#1C2541", color: "#F7F4EC", border: "none", borderRadius: 12, fontSize: 14, fontWeight: 600 }}>Guardar cuenta</button>
+    </ModalShell>
+  );
+}
+
+function CompromisoModal({ info, onClose, onSave }) {
+  const [label, setLabel] = useState("");
+  const [amount, setAmount] = useState("");
+  const submit = () => { if (!label || !amount) return; onSave(label, Math.min(Number(amount), info.remaining)); };
+  return (
+    <ModalShell title="Gasto proyectado en débito" onClose={onClose}>
+      <div style={{ fontSize: 12, color: "#7A7568", marginBottom: 14 }}>Disponible sin asignar: <strong>{fmt(info.remaining)}</strong></div>
+      <label style={lS}>Descripción</label>
+      <input style={iS} type="text" placeholder="Ej. Mercado, Limpieza, Gasolina…" value={label} onChange={(e) => setLabel(e.target.value)} />
+      <label style={lS}>Monto</label>
+      <input style={iS} type="number" inputMode="decimal" placeholder="0" value={amount} onChange={(e) => setAmount(e.target.value)} />
+      <button onClick={submit} style={{ width: "100%", padding: 14, background: "#6B8F71", color: "#fff", border: "none", borderRadius: 12, fontSize: 14, fontWeight: 600 }}>Agregar</button>
     </ModalShell>
   );
 }
