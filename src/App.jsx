@@ -107,30 +107,34 @@ export default function FinanzasApp() {
   useEffect(() => {
     (async () => {
       let acc = [], mov = [], bc = [], inc = [], asg = [];
-      try { const r = await storage.get("accounts"); acc = r ? JSON.parse(r.value) : []; } catch { acc = []; }
-      try { const r = await storage.get("movements"); mov = r ? JSON.parse(r.value) : []; } catch { mov = []; }
-      try { const r = await storage.get("budgetCategories"); bc = r ? JSON.parse(r.value) : []; } catch { bc = []; }
-      try { const r = await storage.get("incomeTemplate"); inc = r ? JSON.parse(r.value) : []; } catch { inc = []; }
-      try { const r = await storage.get("asignaciones"); asg = r ? JSON.parse(r.value) : []; } catch { asg = []; }
-      try { const r = await storage.get("domingoRef"); if (r?.value) setDomingoRef(r.value); } catch {}
+      try {
+        try { const r = await storage.get("accounts"); acc = r ? JSON.parse(r.value) : []; } catch { acc = []; }
+        try { const r = await storage.get("movements"); mov = r ? JSON.parse(r.value) : []; } catch { mov = []; }
+        try { const r = await storage.get("budgetCategories"); bc = r ? JSON.parse(r.value) : []; } catch { bc = []; }
+        try { const r = await storage.get("incomeTemplate"); inc = r ? JSON.parse(r.value) : []; } catch { inc = []; }
+        try { const r = await storage.get("asignaciones"); asg = r ? JSON.parse(r.value) : []; } catch { asg = []; }
+        try { const r = await storage.get("domingoRef"); if (r?.value) setDomingoRef(r.value); } catch {}
 
-      if (acc.length === 0) {
-        acc = MIGRATED_ACCOUNTS;
-        mov = mov.length === 0 ? MIGRATED_MOVEMENTS : mov;
-        bc = bc.length === 0 ? MIGRATED_BUDGET : bc;
-        inc = inc.length === 0 ? MIGRATED_INCOME : inc;
-        await storage.set("accounts", JSON.stringify(acc));
-        await storage.set("movements", JSON.stringify(mov));
-        await storage.set("budgetCategories", JSON.stringify(bc));
-        await storage.set("incomeTemplate", JSON.stringify(inc));
+        if (acc.length === 0) {
+          acc = MIGRATED_ACCOUNTS;
+          mov = mov.length === 0 ? MIGRATED_MOVEMENTS : mov;
+          bc = bc.length === 0 ? MIGRATED_BUDGET : bc;
+          inc = inc.length === 0 ? MIGRATED_INCOME : inc;
+          await storage.set("accounts", JSON.stringify(acc));
+          await storage.set("movements", JSON.stringify(mov));
+          await storage.set("budgetCategories", JSON.stringify(bc));
+          await storage.set("incomeTemplate", JSON.stringify(inc));
+        }
+      } finally {
+        // Garantiza que la pantalla de "Cargando…" siempre se destrabe,
+        // incluso si algo falla de forma inesperada arriba.
+        setAccounts(acc);
+        setMovements(mov);
+        setBudgetCategories(bc.length > 0 ? bc : MIGRATED_BUDGET);
+        setIncomeTemplate(inc);
+        setAsignaciones(asg);
+        setLoaded(true);
       }
-
-      setAccounts(acc);
-      setMovements(mov);
-      setBudgetCategories(bc.length > 0 ? bc : MIGRATED_BUDGET);
-      setIncomeTemplate(inc);
-      setAsignaciones(asg);
-      setLoaded(true);
     })();
   }, []);
 
