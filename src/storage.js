@@ -5,16 +5,20 @@ const TIMEOUT_MS = 8000;
 // fetch() no tiene timeout propio: si Apps Script no responde (cuota, lock
 // colgado, cold start), la promesa nunca se resuelve y la app se queda
 // cargando para siempre. AbortController fuerza un límite de espera.
-function fetchWithTimeout(url) {
+function fetchWithTimeout(url, options) {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), TIMEOUT_MS);
-  return fetch(url, { signal: controller.signal }).finally(() => clearTimeout(id));
+  return fetch(url, { ...options, signal: controller.signal }).finally(() => clearTimeout(id));
 }
 
 async function doSet(key, value) {
   try {
-    const url = `${SCRIPT_URL}?action=set&key=${encodeURIComponent(key)}&value=${encodeURIComponent(value)}`;
-    const res = await fetchWithTimeout(url);
+    // El valor va en el body (POST), no en la URL: como query param (GET) el
+    // JSON de movements/compromisos crece con cada gasto/apartado guardado y
+    // termina superando el límite de longitud de URL, haciendo que el guardado
+    // falle en silencio a partir de cierto tamaño (se ve local pero no persiste).
+    const body = new URLSearchParams({ action: 'set', key, value });
+    const res = await fetchWithTimeout(SCRIPT_URL, { method: 'POST', body });
     const data = await res.json();
     return data.value === 'saved';
   } catch (e) {
