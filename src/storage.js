@@ -11,6 +11,32 @@ function fetchWithTimeout(url) {
   return fetch(url, { signal: controller.signal }).finally(() => clearTimeout(id));
 }
 
+async function doSet(key, value) {
+  try {
+    const url = `${SCRIPT_URL}?action=set&key=${encodeURIComponent(key)}&value=${encodeURIComponent(value)}`;
+    const res = await fetchWithTimeout(url);
+    const data = await res.json();
+    return data.value === 'saved';
+  } catch (e) {
+    console.error('storage.set error:', e);
+    return false;
+  }
+}
+
+// Apps Script sobrescribe la celda completa en cada "set", así que si dos
+// guardados de la misma key quedan en vuelo a la vez, el que responde último
+// gana y borra lo que haya escrito el otro (aunque se haya enviado antes).
+// Esta cola obliga a que los "set" de una misma key se ejecuten uno a la
+// vez, en el orden en que se llamaron, para que nunca se pisen entre sí.
+const writeQueues = new Map();
+
+function queueSet(key, value) {
+  const prev = writeQueues.get(key) || Promise.resolve();
+  const run = prev.then(() => doSet(key, value), () => doSet(key, value));
+  writeQueues.set(key, run.catch(() => {}));
+  return run;
+}
+
 export const storage = {
   async get(key) {
     try {
@@ -25,14 +51,6 @@ export const storage = {
     }
   },
   async set(key, value) {
-    try {
-      const url = `${SCRIPT_URL}?action=set&key=${encodeURIComponent(key)}&value=${encodeURIComponent(value)}`;
-      const res = await fetchWithTimeout(url);
-      const data = await res.json();
-      return data.value === 'saved';
-    } catch (e) {
-      console.error('storage.set error:', e);
-      return false;
-    }
+    return queueSet(key, value);
   }
 };
