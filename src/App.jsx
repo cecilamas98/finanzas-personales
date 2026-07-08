@@ -121,6 +121,7 @@ export default function FinanzasApp() {
   const [loaded, setLoaded] = useState(false);
   const [tab, setTab] = useState("presupuesto");
   const [showAddMov, setShowAddMov] = useState(false);
+  const [editingMov, setEditingMov] = useState(null);
   const [showAddAcc, setShowAddAcc] = useState(false);
   const [error, setError] = useState(null);
 
@@ -223,6 +224,19 @@ export default function FinanzasApp() {
     const n = movements.filter((m) => m.id !== id);
     setMovements(n); persistMovementsMonth(n, target?.date);
   };
+  const updateMovement = (id, patch) => {
+    const target = movements.find((m) => m.id === id);
+    if (!target) return;
+    const n = movements.map((m) => m.id === id ? { ...m, ...patch } : m);
+    setMovements(n);
+    const oldMonth = String(target.date || "").slice(0, 7);
+    const newMonth = String(patch.date || target.date || "").slice(0, 7);
+    persistMovementsMonth(n, target.date);
+    // Si la fecha cambió de mes, el mes anterior y el nuevo quedan en hojas
+    // distintas — hay que reescribir ambas para que no se duplique ni se
+    // pierda el movimiento.
+    if (newMonth && newMonth !== oldMonth) persistMovementsMonth(n, patch.date);
+  };
   const addIncomeTemplate = (i) => { const n = [...incomeTemplate, { ...i, id: "inc_" + Date.now() }]; setIncomeTemplate(n); persist("incomeTemplate", n); };
   const deleteIncomeTemplate = (id) => { const n = incomeTemplate.filter((i) => i.id !== id); setIncomeTemplate(n); persist("incomeTemplate", n); const na = asignaciones.filter((a) => a.incomeTemplateId !== id); setAsignaciones(na); persist("asignaciones", na); };
   const addAsignacion = (a) => { const n = [...asignaciones, { ...a, id: "asg_" + Date.now() }]; setAsignaciones(n); persist("asignaciones", n); };
@@ -267,9 +281,31 @@ export default function FinanzasApp() {
   };
   const updateSubcategoryBudget = (catId, subId, b) => { const n = budgetCategories.map((c) => c.id === catId ? { ...c, subcategories: c.subcategories.map((s) => s.id === subId ? { ...s, budget: b } : s) } : c); setBudgetCategories(n); persist("budgetCategories", n); };
   const addSubcategory = (catId, name, budget) => { const n = budgetCategories.map((c) => c.id === catId ? { ...c, subcategories: [...c.subcategories, { id: "sub_" + Date.now(), name, budget }] } : c); setBudgetCategories(n); persist("budgetCategories", n); };
-  const deleteSubcategory = (catId, subId) => { const n = budgetCategories.map((c) => c.id === catId ? { ...c, subcategories: c.subcategories.filter((s) => s.id !== subId) } : c); setBudgetCategories(n); persist("budgetCategories", n); };
+  const deleteSubcategory = (catId, subId) => {
+    const enUso = movements.filter((m) => m.subcategoryId === subId).length;
+    const enCompromiso = compromisos.filter((c) => c.subcategoryId === subId && !c.paid).length;
+    if (enUso > 0 || enCompromiso > 0) {
+      const partes = [];
+      if (enUso > 0) partes.push(`${enUso} gasto${enUso === 1 ? "" : "s"}`);
+      if (enCompromiso > 0) partes.push(`${enCompromiso} gasto${enCompromiso === 1 ? "" : "s"} programado${enCompromiso === 1 ? "" : "s"} en Apartados`);
+      setError(`No se puede eliminar: ${partes.join(" y ")} está${(enUso + enCompromiso) === 1 ? "" : "n"} asignado${(enUso + enCompromiso) === 1 ? "" : "s"} a esta subcategoría. Reasígnalos primero y vuelve a intentar.`);
+      return;
+    }
+    const n = budgetCategories.map((c) => c.id === catId ? { ...c, subcategories: c.subcategories.filter((s) => s.id !== subId) } : c); setBudgetCategories(n); persist("budgetCategories", n);
+  };
   const addCategory = (name) => { const n = [...budgetCategories, { id: "cat_" + Date.now(), name, subcategories: [] }]; setBudgetCategories(n); persist("budgetCategories", n); };
-  const deleteCategory = (catId) => { const n = budgetCategories.filter((c) => c.id !== catId); setBudgetCategories(n); persist("budgetCategories", n); };
+  const deleteCategory = (catId) => {
+    const enUso = movements.filter((m) => m.categoryId === catId).length;
+    const enCompromiso = compromisos.filter((c) => c.categoryId === catId && !c.paid).length;
+    if (enUso > 0 || enCompromiso > 0) {
+      const partes = [];
+      if (enUso > 0) partes.push(`${enUso} gasto${enUso === 1 ? "" : "s"}`);
+      if (enCompromiso > 0) partes.push(`${enCompromiso} gasto${enCompromiso === 1 ? "" : "s"} programado${enCompromiso === 1 ? "" : "s"} en Apartados`);
+      setError(`No se puede eliminar: ${partes.join(" y ")} está${(enUso + enCompromiso) === 1 ? "" : "n"} asignado${(enUso + enCompromiso) === 1 ? "" : "s"} a esta categoría. Reasígnalos primero y vuelve a intentar.`);
+      return;
+    }
+    const n = budgetCategories.filter((c) => c.id !== catId); setBudgetCategories(n); persist("budgetCategories", n);
+  };
 
   // Todo el ciclo se deriva del domingo de referencia, desplazado por monthOffset
   // ciclos (±1 = un mes antes/después) para poder navegar el historial.
@@ -334,25 +370,31 @@ export default function FinanzasApp() {
 
       <div style={{ maxWidth: 720, margin: "0 auto", padding: "20px 20px 100px" }}>
         {error && <div style={{ background: "#B1645B", color: "#fff", padding: 10, borderRadius: 8, marginBottom: 16, fontSize: 13, display: "flex", justifyContent: "space-between" }}>{error}<button onClick={() => setError(null)} style={{ background: "none", border: "none", color: "#fff" }}><X size={14} /></button></div>}
-        {tab === "presupuesto" && <PresupuestoView budgetCategories={budgetCategories} movements={movements} compromisos={compromisos} accounts={accounts} periodo={periodo} ciclo={ciclo} onUpdateBudget={updateSubcategoryBudget} onAddSubcategory={addSubcategory} onDeleteSubcategory={deleteSubcategory} onAddCategory={addCategory} onDeleteCategory={deleteCategory} onDelete={deleteMovement} />}
+        {tab === "presupuesto" && <PresupuestoView budgetCategories={budgetCategories} movements={movements} compromisos={compromisos} accounts={accounts} periodo={periodo} ciclo={ciclo} onUpdateBudget={updateSubcategoryBudget} onAddSubcategory={addSubcategory} onDeleteSubcategory={deleteSubcategory} onAddCategory={addCategory} onDeleteCategory={deleteCategory} onDelete={deleteMovement} onEdit={setEditingMov} />}
         {tab === "apartados" && <ApartadosView accounts={accounts} movements={movements} budgetCategories={budgetCategories} incomeTemplate={incomeTemplate} asignaciones={asignaciones} compromisos={compromisos} ciclo={ciclo} semanasApartado={semanasApartado} onAddIncome={addIncomeTemplate} onDeleteIncome={deleteIncomeTemplate} onAddAsignacion={addAsignacion} onDeleteAsignacion={deleteAsignacion} onAddCompromiso={addCompromiso} onDeleteCompromiso={deleteCompromiso} onTogglePaidCompromiso={toggleCompromisoPaid} />}
         {tab === "cuentas" && <CuentasView accounts={accounts} movements={movements} budgetCategories={budgetCategories} domingoRef={domingoRef} onSaveDomingo={saveDomingo} ciclo={ciclo} semanasGasto={semanasGasto} onAddAccount={() => setShowAddAcc(true)} onDeleteAccount={deleteAccount} />}
       </div>
 
       {accounts.length > 0 && <button onClick={() => setShowAddMov(true)} style={{ position: "fixed", bottom: 24, right: 24, width: 56, height: 56, borderRadius: "50%", background: "#D87554", color: "#fff", border: "none", boxShadow: "0 4px 14px rgba(0,0,0,0.25)", display: "flex", alignItems: "center", justifyContent: "center" }}><Plus size={26} /></button>}
       {showAddMov && <AddMovementModal accounts={accounts} budgetCategories={budgetCategories} ciclo={ciclo} onClose={() => setShowAddMov(false)} onSave={(m) => { addMovement(m); setShowAddMov(false); }} />}
+      {editingMov && <AddMovementModal accounts={accounts} budgetCategories={budgetCategories} ciclo={ciclo} initial={editingMov} onClose={() => setEditingMov(null)} onSave={(m) => { updateMovement(editingMov.id, m); setEditingMov(null); }} />}
       {showAddAcc && <AddAccountModal onClose={() => setShowAddAcc(false)} onSave={(a) => { addAccount(a); setShowAddAcc(false); }} />}
     </div>
   );
 }
 
-function PresupuestoView({ budgetCategories, movements, compromisos, accounts, periodo, ciclo, onUpdateBudget, onAddSubcategory, onDeleteSubcategory, onAddCategory, onDeleteCategory, onDelete }) {
+function PresupuestoView({ budgetCategories, movements, compromisos, accounts, periodo, ciclo, onUpdateBudget, onAddSubcategory, onDeleteSubcategory, onAddCategory, onDeleteCategory, onDelete, onEdit }) {
   const [openCat, setOpenCat] = useState(null);
   const [openSub, setOpenSub] = useState(null);
   const [editingSub, setEditingSub] = useState(null);
   const [showAddCat, setShowAddCat] = useState(false);
   const [addingSubTo, setAddingSubTo] = useState(null);
+  const [showAllMovs, setShowAllMovs] = useState(false);
   const periodMovs = useMemo(() => movements.filter((m) => m.kind === "gasto" && m.date >= ciclo.inicio && m.date <= ciclo.finGasto), [movements, ciclo]);
+  // Gastos cuya categoría/subcategoría ya no existe (p. ej. se borró la
+  // categoría después de asignarles el gasto) — quedan "huérfanos" y antes
+  // se mostraban en blanco sin explicación.
+  const sinCategoria = useMemo(() => periodMovs.filter((m) => !budgetCategories.some((c) => c.id === m.categoryId)), [periodMovs, budgetCategories]);
   // Compromisos de débito (Apartados) todavía sin pagar de este mismo ciclo:
   // cuentan como "programado" — spending anticipado que aún no es un gasto real.
   const programados = useMemo(() => (compromisos || []).filter((c) => c.pagoISO === ciclo.pago && !c.paid), [compromisos, ciclo]);
@@ -367,19 +409,23 @@ function PresupuestoView({ budgetCategories, movements, compromisos, accounts, p
 
   const MovRow = ({ m }) => {
     const acc = accounts.find((a) => a.id === m.accountId);
-    const subName = budgetCategories.find((c) => c.id === m.categoryId)?.subcategories.find((s) => s.id === m.subcategoryId)?.name;
+    const cat = budgetCategories.find((c) => c.id === m.categoryId);
+    const subName = cat?.subcategories.find((s) => s.id === m.subcategoryId)?.name;
     return (
-      <div style={{ padding: "8px 16px", borderTop: "1px solid #F7F4EC", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+      <div onClick={() => onEdit(m)} style={{ padding: "8px 16px", borderTop: "1px solid #F7F4EC", display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <div style={{ width: 6, height: 6, borderRadius: "50%", background: acc?.color || "#ccc", flexShrink: 0 }} />
           <div>
             <div style={{ fontSize: 12, fontWeight: 500 }}>{m.label || subName || "—"}</div>
-            <div style={{ fontSize: 11, color: "#A39E8F" }}>{new Date(m.date+"T00:00:00").toLocaleDateString("es-MX",{day:"numeric",month:"short"})} · {acc?.name || "—"}</div>
+            <div style={{ fontSize: 11, color: "#A39E8F" }}>
+              {new Date(m.date+"T00:00:00").toLocaleDateString("es-MX",{day:"numeric",month:"short"})} · {acc?.name || "—"}
+              {!cat && <span style={{ color: "#C9A04D", fontWeight: 600 }}> · Sin categoría</span>}
+            </div>
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <div style={{ fontSize: 12, fontWeight: 600, color: "#B1645B" }}>−{fmt(m.amount)}</div>
-          <button onClick={() => onDelete(m.id)} style={{ background: "none", border: "none", color: "#C9BFA8", padding: 2 }}><Trash2 size={13} /></button>
+          <button onClick={(e) => { e.stopPropagation(); onDelete(m.id); }} style={{ background: "none", border: "none", color: "#C9BFA8", padding: 2 }}><Trash2 size={13} /></button>
         </div>
       </div>
     );
@@ -392,6 +438,15 @@ function PresupuestoView({ budgetCategories, movements, compromisos, accounts, p
         <div className="dp" style={{ fontSize: 28, fontWeight: 600, color: totalPresupuestado - totalGastado - totalProgramado >= 0 ? "#1C2541" : "#B1645B", marginTop: 2 }}>{fmt(Math.abs(totalPresupuestado - totalGastado - totalProgramado))}</div>
         <div style={{ fontSize: 12, color: "#A39E8F", marginTop: 2 }}>de {fmt(totalPresupuestado)} presupuestado · {periodo.label}{totalProgramado > 0 ? ` · +${fmt(totalProgramado)} programado` : ""}</div>
       </div>
+      {sinCategoria.length > 0 && (
+        <div style={{ background: "#FEF3CD", border: "1px solid #F0D080", borderRadius: 14, overflow: "hidden", marginBottom: 18 }}>
+          <div style={{ padding: 16 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: "#7A6020" }}>⚠️ Sin categoría ({sinCategoria.length})</div>
+            <div style={{ fontSize: 11, color: "#7A6020", marginTop: 2 }}>{fmt(sinCategoria.reduce((s, m) => s + Number(m.amount), 0))} sin asignar · toca un gasto para corregirlo</div>
+          </div>
+          <div>{sinCategoria.map((m) => <MovRow key={m.id} m={m} />)}</div>
+        </div>
+      )}
       <div style={{ display: "grid", gap: 12 }}>
         {budgetCategories.map((cat) => {
           const presupuestado = presupuestoPorCat(cat);
@@ -480,22 +535,30 @@ function PresupuestoView({ budgetCategories, movements, compromisos, accounts, p
 
       {/* Últimos movimientos */}
       <div style={{ marginTop: 24 }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: "#7A7568", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 10 }}>Últimos movimientos</div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: "#7A7568", textTransform: "uppercase", letterSpacing: 0.5 }}>{showAllMovs ? "Todos los movimientos" : "Últimos movimientos"}</div>
+          {periodMovs.length > 20 && (
+            <button onClick={() => setShowAllMovs((v) => !v)} style={{ background: "none", border: "none", color: "#D87554", fontSize: 12, fontWeight: 600 }}>
+              {showAllMovs ? "Ver solo recientes" : `Ver todos (${periodMovs.length})`}
+            </button>
+          )}
+        </div>
         <div style={{ background: "#fff", border: "1px solid #E5DFD0", borderRadius: 14, overflow: "hidden" }}>
           {periodMovs.length === 0
             ? <div style={{ padding: 16, fontSize: 13, color: "#A39E8F" }}>Sin movimientos en este ciclo.</div>
-            : periodMovs.slice().sort((a, b) => a.date < b.date ? 1 : -1).slice(0, 20).map((m) => {
+            : periodMovs.slice().sort((a, b) => a.date < b.date ? 1 : -1).slice(0, showAllMovs ? undefined : 20).map((m) => {
                 const acc = accounts.find((a) => a.id === m.accountId);
-                const catName = budgetCategories.find((c) => c.id === m.categoryId)?.name;
-                const subName = budgetCategories.find((c) => c.id === m.categoryId)?.subcategories.find((s) => s.id === m.subcategoryId)?.name;
+                const cat = budgetCategories.find((c) => c.id === m.categoryId);
+                const subName = cat?.subcategories.find((s) => s.id === m.subcategoryId)?.name;
                 return (
-                  <div key={m.id} style={{ padding: "10px 16px", borderTop: "1px solid #F0ECE0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div key={m.id} onClick={() => onEdit(m)} style={{ padding: "10px 16px", borderTop: "1px solid #F0ECE0", display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                       <div style={{ width: 8, height: 8, borderRadius: "50%", background: acc?.color || "#ccc", flexShrink: 0 }} />
                       <div>
                         <div style={{ fontSize: 13, fontWeight: 500 }}>{m.label || subName || "—"}</div>
                         <div style={{ fontSize: 11, color: "#A39E8F" }}>
-                          {new Date(m.date+"T00:00:00").toLocaleDateString("es-MX",{day:"numeric",month:"short"})} · {acc?.name || "—"} · {catName}{subName ? ` › ${subName}` : ""}
+                          {new Date(m.date+"T00:00:00").toLocaleDateString("es-MX",{day:"numeric",month:"short"})} · {acc?.name || "—"}
+                          {cat ? ` · ${cat.name}${subName ? ` › ${subName}` : ""}` : <span style={{ color: "#C9A04D", fontWeight: 600 }}> · Sin categoría</span>}
                         </div>
                       </div>
                     </div>
@@ -503,7 +566,7 @@ function PresupuestoView({ budgetCategories, movements, compromisos, accounts, p
                       <div className="dp" style={{ fontSize: 14, fontWeight: 600, color: m.kind === "ingreso" ? "#6B8F71" : "#B1645B" }}>
                         {m.kind === "ingreso" ? "+" : "−"}{fmt(m.amount)}
                       </div>
-                      <button onClick={() => onDelete(m.id)} style={{ background: "none", border: "none", color: "#C9BFA8", padding: 2 }}><Trash2 size={13} /></button>
+                      <button onClick={(e) => { e.stopPropagation(); onDelete(m.id); }} style={{ background: "none", border: "none", color: "#C9BFA8", padding: 2 }}><Trash2 size={13} /></button>
                     </div>
                   </div>
                 );
@@ -846,17 +909,24 @@ function ModalShell({ title, onClose, children }) {
 const iS = { width: "100%", padding: "10px 12px", borderRadius: 10, border: "1px solid #E5DFD0", fontSize: 14, marginBottom: 12, background: "#fff", color: "#1C2541" };
 const lS = { fontSize: 12, fontWeight: 600, color: "#7A7568", marginBottom: 4, display: "block" };
 
-function AddMovementModal({ accounts, budgetCategories, ciclo, onClose, onSave }) {
-  const [kind, setKind] = useState("gasto"); const [amount, setAmount] = useState(""); const [accountId, setAccountId] = useState(accounts[0]?.id || "");
-  const [categoryId, setCategoryId] = useState(budgetCategories[0]?.id || ""); const [subcategoryId, setSubcategoryId] = useState(budgetCategories[0]?.subcategories[0]?.id || "");
-  const [label, setLabel] = useState(""); const [date, setDate] = useState(todayISO);
+function AddMovementModal({ accounts, budgetCategories, ciclo, initial, onClose, onSave }) {
+  const isEdit = !!initial;
+  const [kind, setKind] = useState(initial?.kind || "gasto"); const [amount, setAmount] = useState(initial?.amount ?? ""); const [accountId, setAccountId] = useState(initial?.accountId || accounts[0]?.id || "");
+  const [categoryId, setCategoryId] = useState(initial?.categoryId || budgetCategories[0]?.id || ""); const [subcategoryId, setSubcategoryId] = useState(initial?.subcategoryId || budgetCategories[0]?.subcategories[0]?.id || "");
+  const [label, setLabel] = useState(initial?.label || ""); const [date, setDate] = useState(initial?.date || todayISO);
   const currentCat = budgetCategories.find((c) => c.id === categoryId);
   const subOptions = currentCat?.subcategories || [];
+  const categoriaHuerfana = kind === "gasto" && categoryId && !currentCat;
   const handleCategoryChange = (id) => { setCategoryId(id); const cat = budgetCategories.find((c) => c.id === id); setSubcategoryId(cat?.subcategories[0]?.id || ""); };
   const fueraDelCiclo = date < ciclo.inicio || date > ciclo.finGasto;
   const submit = () => { if (!amount || !accountId) return; if (kind === "gasto" && (!categoryId || !subcategoryId)) return; onSave({ kind, amount: Number(amount), accountId, categoryId, subcategoryId, label, date }); };
   return (
-    <ModalShell title="Nuevo movimiento" onClose={onClose}>
+    <ModalShell title={isEdit ? "Editar movimiento" : "Nuevo movimiento"} onClose={onClose}>
+      {categoriaHuerfana && (
+        <div style={{ background: "#FEF3CD", border: "1px solid #F0D080", borderRadius: 10, padding: "8px 12px", fontSize: 12, color: "#7A6020", marginBottom: 12 }}>
+          ⚠️ Este gasto tiene una categoría que ya no existe (por eso aparecía sin asignar). Elige una categoría y subcategoría válidas abajo.
+        </div>
+      )}
       <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
         {["gasto","ingreso"].map((k) => <button key={k} onClick={() => setKind(k)} style={{ flex: 1, padding: 10, borderRadius: 10, border: kind === k ? "1.5px solid #D87554" : "1px solid #E5DFD0", background: kind === k ? "#FBEEE8" : "#fff", fontSize: 13, fontWeight: 600, color: "#1C2541" }}>{k === "gasto" ? "Gasto" : "Ingreso"}</button>)}
       </div>
@@ -865,7 +935,7 @@ function AddMovementModal({ accounts, budgetCategories, ciclo, onClose, onSave }
       <select style={iS} value={accountId} onChange={(e) => setAccountId(e.target.value)}>{accounts.map((a) => <option key={a.id} value={a.id}>{a.name} ({a.type})</option>)}</select>
       {kind === "gasto" && (<>
         <label style={lS}>Categoría</label>
-        <select style={iS} value={categoryId} onChange={(e) => handleCategoryChange(e.target.value)}>{budgetCategories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
+        <select style={iS} value={categoryId} onChange={(e) => handleCategoryChange(e.target.value)}>{categoriaHuerfana && <option value={categoryId}>⚠️ Categoría eliminada — elige otra</option>}{budgetCategories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
         <label style={lS}>Subcategoría</label>
         <select style={iS} value={subcategoryId} onChange={(e) => setSubcategoryId(e.target.value)}>{subOptions.length === 0 && <option value="">Sin subcategorías</option>}{subOptions.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select>
       </>)}
@@ -879,7 +949,7 @@ function AddMovementModal({ accounts, budgetCategories, ciclo, onClose, onSave }
           ⚠️ Esta fecha está fuera del ciclo activo — el movimiento se guardará pero no aparecerá en Presupuesto ni Apartados del ciclo actual.
         </div>
       )}
-      <button onClick={submit} style={{ width: "100%", padding: 14, background: "#1C2541", color: "#F7F4EC", border: "none", borderRadius: 12, fontSize: 14, fontWeight: 600, marginTop: 4 }}>Guardar</button>
+      <button onClick={submit} style={{ width: "100%", padding: 14, background: "#1C2541", color: "#F7F4EC", border: "none", borderRadius: 12, fontSize: 14, fontWeight: 600, marginTop: 4 }}>{isEdit ? "Guardar cambios" : "Guardar"}</button>
     </ModalShell>
   );
 }
