@@ -128,34 +128,56 @@ export default function FinanzasApp() {
     (async () => {
       let acc = [], mov = [], bc = [], inc = [], asg = [];
       try {
-        const getJSON = async (key) => { try { const r = await storage.get(key); return r ? JSON.parse(r.value) : []; } catch { return []; } };
-        const [accR, movR, bcR, incR, asgR, domingoR] = await Promise.all([
+        // IMPORTANTE: nunca confundir "la petición falló" con "no hay datos
+        // todavía" — antes ambos casos devolvían [] y un fallo de red
+        // disparaba la migración, que SOBREESCRIBE Google Sheets con los
+        // datos de ejemplo. Aquí cada llamada reporta si tuvo éxito o no,
+        // y solo se confía en un array vacío cuando sabemos que es real.
+        const getJSON = async (key) => {
+          try { const r = await storage.get(key); return { ok: true, data: r ? JSON.parse(r.value) : [] }; }
+          catch { return { ok: false, data: [] }; }
+        };
+        const [accR, movR, bcR, incR, asgR, seedR, domingoR] = await Promise.all([
           getJSON("accounts"),
           getJSON("movements"),
           getJSON("budgetCategories"),
           getJSON("incomeTemplate"),
           getJSON("asignaciones"),
+          storage.get("seedDone").catch(() => null),
           storage.get("domingoRef").catch(() => null),
         ]);
-        acc = accR; mov = movR; bc = bcR; inc = incR; asg = asgR;
+        acc = accR.data; mov = movR.data; bc = bcR.data; inc = incR.data; asg = asgR.data;
         if (domingoR?.value) setDomingoRef(sanitizeDomingoISO(domingoR.value));
 
-        if (acc.length === 0) {
-          acc = MIGRATED_ACCOUNTS;
-          mov = mov.length === 0 ? MIGRATED_MOVEMENTS : mov;
-          bc = bc.length === 0 ? MIGRATED_BUDGET : bc;
-          inc = inc.length === 0 ? MIGRATED_INCOME : inc;
-          await storage.set("accounts", JSON.stringify(acc));
-          await storage.set("movements", JSON.stringify(mov));
-          await storage.set("budgetCategories", JSON.stringify(bc));
-          await storage.set("incomeTemplate", JSON.stringify(inc));
+        const allOk = accR.ok && movR.ok && bcR.ok && incR.ok && asgR.ok;
+        const yaSembrado = seedR?.value === "1";
+        if (!allOk) {
+          // Alguna petición falló: mostramos lo que tengamos (puede quedar
+          // incompleto) pero NUNCA escribimos nada — evita pisar datos reales
+          // por una falla temporal de red.
+          setError("Algunos datos no se pudieron cargar (falla de red). No se guardó nada para evitar sobrescribir tu información. Recarga la página.");
+        } else if (!yaSembrado) {
+          // Primera vez confirmada (todas las peticiones respondieron OK y
+          // no hay bandera de que ya se sembraron datos antes): si de verdad
+          // no hay cuentas, sembramos los datos migrados una sola vez.
+          if (acc.length === 0) {
+            acc = MIGRATED_ACCOUNTS;
+            mov = mov.length === 0 ? MIGRATED_MOVEMENTS : mov;
+            bc = bc.length === 0 ? MIGRATED_BUDGET : bc;
+            inc = inc.length === 0 ? MIGRATED_INCOME : inc;
+            await storage.set("accounts", JSON.stringify(acc));
+            await storage.set("movements", JSON.stringify(mov));
+            await storage.set("budgetCategories", JSON.stringify(bc));
+            await storage.set("incomeTemplate", JSON.stringify(inc));
+          }
+          await storage.set("seedDone", "1");
         }
       } finally {
         // Garantiza que la pantalla de "Cargando…" siempre se destrabe,
         // incluso si algo falla de forma inesperada arriba.
         setAccounts(acc);
         setMovements(mov);
-        setBudgetCategories(bc.length > 0 ? bc : MIGRATED_BUDGET);
+        setBudgetCategories(bc);
         setIncomeTemplate(inc);
         setAsignaciones(asg);
         setLoaded(true);
@@ -178,10 +200,29 @@ export default function FinanzasApp() {
     }
   };
 
+  // "movements" está particionado por mes en el backend (ver apps-script.gs):
+  // en vez de reenviar el historial completo en cada gasto (que crecería sin
+  // límite con el uso), solo se reenvía el mes al que pertenece el
+  // movimiento que cambió.
+  const persistMovementsMonth = async (fullArray, affectedISODate) => {
+    const month = String(affectedISODate || "").slice(0, 7);
+    if (!month) { setError("No se pudo guardar el movimiento: fecha inválida."); return; }
+    const itemsForMonth = fullArray.filter((m) => String(m.date || "").slice(0, 7) === month);
+    try {
+      await storage.setMonth("movements", month, itemsForMonth);
+    } catch (e) {
+      setError("No se pudo guardar el movimiento. Verifica tu conexión.");
+    }
+  };
+
   const addAccount = (a) => { const n = [...accounts, { ...a, id: "acc_" + Date.now() }]; setAccounts(n); persist("accounts", n); };
   const deleteAccount = (id) => { const n = accounts.filter((a) => a.id !== id); setAccounts(n); persist("accounts", n); };
-  const addMovement = (m) => { const n = [...movements, { ...m, id: "mov_" + Date.now() }]; setMovements(n); persist("movements", n); };
-  const deleteMovement = (id) => { const n = movements.filter((m) => m.id !== id); setMovements(n); persist("movements", n); };
+  const addMovement = (m) => { const n = [...movements, { ...m, id: "mov_" + Date.now() }]; setMovements(n); persistMovementsMonth(n, m.date); };
+  const deleteMovement = (id) => {
+    const target = movements.find((m) => m.id === id);
+    const n = movements.filter((m) => m.id !== id);
+    setMovements(n); persistMovementsMonth(n, target?.date);
+  };
   const addIncomeTemplate = (i) => { const n = [...incomeTemplate, { ...i, id: "inc_" + Date.now() }]; setIncomeTemplate(n); persist("incomeTemplate", n); };
   const deleteIncomeTemplate = (id) => { const n = incomeTemplate.filter((i) => i.id !== id); setIncomeTemplate(n); persist("incomeTemplate", n); const na = asignaciones.filter((a) => a.incomeTemplateId !== id); setAsignaciones(na); persist("asignaciones", na); };
   const addAsignacion = (a) => { const n = [...asignaciones, { ...a, id: "asg_" + Date.now() }]; setAsignaciones(n); persist("asignaciones", n); };
@@ -200,8 +241,9 @@ export default function FinanzasApp() {
     const n = compromisos.filter((c) => c.id !== id);
     setCompromisos(n); persist("compromisos", n);
     if (target?.movementId) {
+      const movTarget = movements.find((m) => m.id === target.movementId);
       const nMov = movements.filter((m) => m.id !== target.movementId);
-      setMovements(nMov); persist("movements", nMov);
+      setMovements(nMov); persistMovementsMonth(nMov, movTarget?.date);
     }
   };
   // Marca/desmarca un compromiso de débito como pagado. Al pagarlo, crea el
@@ -212,12 +254,13 @@ export default function FinanzasApp() {
       const accountId = incomeTemplate.find((i) => i.id === c.incomeTemplateId)?.accountId;
       const movId = "mov_" + Date.now();
       const nMov = [...movements, { id: movId, kind: "gasto", amount: c.amount, accountId, categoryId: c.categoryId, subcategoryId: c.subcategoryId, label: c.label, date: todayISO }];
-      setMovements(nMov); persist("movements", nMov);
+      setMovements(nMov); persistMovementsMonth(nMov, todayISO);
       const nComp = compromisos.map((x) => x.id === c.id ? { ...x, paid: true, movementId: movId } : x);
       setCompromisos(nComp); persist("compromisos", nComp);
     } else {
+      const movTarget = movements.find((m) => m.id === c.movementId);
       const nMov = movements.filter((m) => m.id !== c.movementId);
-      setMovements(nMov); persist("movements", nMov);
+      setMovements(nMov); persistMovementsMonth(nMov, movTarget?.date);
       const nComp = compromisos.map((x) => x.id === c.id ? { ...x, paid: false, movementId: null } : x);
       setCompromisos(nComp); persist("compromisos", nComp);
     }

@@ -11,13 +11,15 @@ function fetchWithTimeout(url, options) {
   return fetch(url, { ...options, signal: controller.signal }).finally(() => clearTimeout(id));
 }
 
-async function doSet(key, value) {
+async function doSet(key, value, month) {
   try {
     // El valor va en el body (POST), no en la URL: como query param (GET) el
     // JSON de movements/compromisos crece con cada gasto/apartado guardado y
     // termina superando el límite de longitud de URL, haciendo que el guardado
     // falle en silencio a partir de cierto tamaño (se ve local pero no persiste).
-    const body = new URLSearchParams({ action: 'set', key, value });
+    const params = { action: 'set', key, value };
+    if (month) params.month = month; // ver setMonth: reescribe solo ese mes
+    const body = new URLSearchParams(params);
     const res = await fetchWithTimeout(SCRIPT_URL, { method: 'POST', body });
     const data = await res.json();
     return data.value === 'saved';
@@ -27,17 +29,17 @@ async function doSet(key, value) {
   }
 }
 
-// Apps Script sobrescribe la celda completa en cada "set", así que si dos
-// guardados de la misma key quedan en vuelo a la vez, el que responde último
-// gana y borra lo que haya escrito el otro (aunque se haya enviado antes).
-// Esta cola obliga a que los "set" de una misma key se ejecuten uno a la
-// vez, en el orden en que se llamaron, para que nunca se pisen entre sí.
+// Apps Script sobrescribe la celda/hoja completa en cada "set", así que si
+// dos guardados de la misma key (o el mismo mes) quedan en vuelo a la vez,
+// el que responde último gana y borra lo que haya escrito el otro (aunque
+// se haya enviado antes). Esta cola obliga a que los "set" de una misma
+// key/mes se ejecuten uno a la vez, en el orden en que se llamaron.
 const writeQueues = new Map();
 
-function queueSet(key, value) {
-  const prev = writeQueues.get(key) || Promise.resolve();
-  const run = prev.then(() => doSet(key, value), () => doSet(key, value));
-  writeQueues.set(key, run.catch(() => {}));
+function enqueue(queueKey, task) {
+  const prev = writeQueues.get(queueKey) || Promise.resolve();
+  const run = prev.then(task, task);
+  writeQueues.set(queueKey, run.catch(() => {}));
   return run;
 }
 
@@ -55,6 +57,12 @@ export const storage = {
     }
   },
   async set(key, value) {
-    return queueSet(key, value);
+    return enqueue(key, () => doSet(key, value));
+  },
+  // Reescribe solo los elementos de un mes de una colección particionada
+  // (hoy: "movements"), en vez de reenviar el historial completo en cada
+  // gasto — así la petición nunca crece sin límite con el tiempo de uso.
+  async setMonth(key, month, items) {
+    return enqueue(`${key}__${month}`, () => doSet(key, JSON.stringify(items), month));
   }
 };
