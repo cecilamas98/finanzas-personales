@@ -316,10 +316,6 @@ export default function FinanzasApp() {
   const semanasGasto = useMemo(() => getWeekRanges(ciclo.inicio, ciclo.finGasto), [ciclo]);
   const semanasApartado = useMemo(() => getWeekRanges(ciclo.inicioApartado, ciclo.pago), [ciclo]);
 
-  const periodMovements = useMemo(() => movements.filter((m) => m.date >= periodo.inicio && m.date <= periodo.fin), [movements, periodo]);
-  const ingresos = periodMovements.filter((m) => m.kind === "ingreso").reduce((s, m) => s + Number(m.amount), 0);
-  const egresos = periodMovements.filter((m) => m.kind === "gasto").reduce((s, m) => s + Number(m.amount), 0);
-  const balance = ingresos - egresos;
 
   if (!loaded) return <div style={{ minHeight: "100vh", background: "#F7F4EC", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "system-ui", color: "#1C2541" }}>Cargando…</div>;
 
@@ -336,8 +332,7 @@ export default function FinanzasApp() {
               <button onClick={() => setMonthOffset((o) => o + 1)} style={{ background: "none", border: "none", color: "#F7F4EC", opacity: 0.7, padding: 4, display: "flex" }}><ChevronRight size={18} /></button>
               {monthOffset !== 0 && <button onClick={() => setMonthOffset(0)} style={{ background: "none", border: "none", color: "#D87554", fontSize: 11, fontWeight: 600, marginLeft: 4, whiteSpace: "nowrap" }}>Hoy</button>}
             </div>
-            <div className="dp" style={{ fontSize: 28, fontWeight: 600, marginTop: 2, textAlign: "center" }}>{fmt(balance)}</div>
-            <div style={{ fontSize: 12, opacity: 0.7, marginTop: 2, textAlign: "center" }}>
+            <div style={{ fontSize: 12, opacity: 0.7, marginTop: 8, textAlign: "center" }}>
               Gasto {new Date(ciclo.inicio+"T00:00:00").toLocaleDateString("es-MX",{day:"numeric",month:"short"})} – {new Date(ciclo.finGasto+"T00:00:00").toLocaleDateString("es-MX",{day:"numeric",month:"short"})} · Pago {new Date(ciclo.pago+"T00:00:00").toLocaleDateString("es-MX",{day:"numeric",month:"short"})}
             </div>
           </div>
@@ -403,9 +398,6 @@ function PresupuestoView({ budgetCategories, movements, compromisos, accounts, p
   const programadoPorSub = (subId) => programados.filter((c) => c.subcategoryId === subId).reduce((s, c) => s + Number(c.amount), 0);
   const programadoPorCat = (catId) => programados.filter((c) => c.categoryId === catId).reduce((s, c) => s + Number(c.amount), 0);
   const presupuestoPorCat = (cat) => cat.subcategories.reduce((s, sub) => s + Number(sub.budget || 0), 0);
-  const totalPresupuestado = budgetCategories.reduce((s, c) => s + presupuestoPorCat(c), 0);
-  const totalGastado = periodMovs.reduce((s, m) => s + Number(m.amount), 0);
-  const totalProgramado = programados.reduce((s, c) => s + Number(c.amount), 0);
 
   const MovRow = ({ m }) => {
     const acc = accounts.find((a) => a.id === m.accountId);
@@ -433,11 +425,6 @@ function PresupuestoView({ budgetCategories, movements, compromisos, accounts, p
 
   return (
     <div>
-      <div style={{ background: "#fff", border: "1px solid #E5DFD0", borderRadius: 14, padding: 18, marginBottom: 18 }}>
-        <div style={{ fontSize: 11, color: "#A39E8F", textTransform: "uppercase", letterSpacing: 0.5 }}>{totalPresupuestado - totalGastado - totalProgramado >= 0 ? "Disponible" : "Te pasaste por"}</div>
-        <div className="dp" style={{ fontSize: 28, fontWeight: 600, color: totalPresupuestado - totalGastado - totalProgramado >= 0 ? "#1C2541" : "#B1645B", marginTop: 2 }}>{fmt(Math.abs(totalPresupuestado - totalGastado - totalProgramado))}</div>
-        <div style={{ fontSize: 12, color: "#A39E8F", marginTop: 2 }}>de {fmt(totalPresupuestado)} presupuestado · {periodo.label}{totalProgramado > 0 ? ` · +${fmt(totalProgramado)} programado` : ""}</div>
-      </div>
       {sinCategoria.length > 0 && (
         <div style={{ background: "#FEF3CD", border: "1px solid #F0D080", borderRadius: 14, overflow: "hidden", marginBottom: 18 }}>
           <div style={{ padding: 16 }}>
