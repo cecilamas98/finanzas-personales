@@ -97,6 +97,11 @@ function getWeekRanges(inicioISO, finISO) {
   return weeks;
 }
 
+// El presupuesto de una subcategoría varía por mes: budgetOverrides guarda
+// el monto específico de cada mes (clave "YYYY-MM", tomada de ciclo.pago);
+// sub.budget queda como valor por defecto para los meses sin override.
+function budgetFor(sub, monthKey) { return Number(sub.budgetOverrides?.[monthKey] ?? sub.budget ?? 0); }
+
 function getSubcatName(bc, catId, subId) { return bc.find((c) => c.id === catId)?.subcategories.find((s) => s.id === subId)?.name || null; }
 function getCatName(bc, catId) { return bc.find((c) => c.id === catId)?.name || null; }
 
@@ -235,7 +240,7 @@ export default function FinanzasApp() {
       setCompromisos(nComp); persist("compromisos", nComp);
     }
   };
-  const updateSubcategoryBudget = (catId, subId, b) => { const n = budgetCategories.map((c) => c.id === catId ? { ...c, subcategories: c.subcategories.map((s) => s.id === subId ? { ...s, budget: b } : s) } : c); setBudgetCategories(n); persist("budgetCategories", n); };
+  const updateSubcategoryBudget = (catId, subId, monthKey, b) => { const n = budgetCategories.map((c) => c.id === catId ? { ...c, subcategories: c.subcategories.map((s) => s.id === subId ? { ...s, budgetOverrides: { ...(s.budgetOverrides || {}), [monthKey]: b } } : s) } : c); setBudgetCategories(n); persist("budgetCategories", n); };
   const addSubcategory = (catId, name, budget) => { const n = budgetCategories.map((c) => c.id === catId ? { ...c, subcategories: [...c.subcategories, { id: "sub_" + Date.now(), name, budget }] } : c); setBudgetCategories(n); persist("budgetCategories", n); };
   const deleteSubcategory = (catId, subId) => {
     const enUso = movements.filter((m) => m.subcategoryId === subId).length;
@@ -341,6 +346,7 @@ function PresupuestoView({ budgetCategories, movements, compromisos, accounts, p
   const [showAddCat, setShowAddCat] = useState(false);
   const [addingSubTo, setAddingSubTo] = useState(null);
   const [showAllMovs, setShowAllMovs] = useState(false);
+  const monthKey = ciclo.pago.slice(0, 7);
   const periodMovs = useMemo(() => movements.filter((m) => m.kind === "gasto" && m.date >= ciclo.inicio && m.date <= ciclo.finGasto), [movements, ciclo]);
   // Gastos cuya categoría/subcategoría ya no existe (p. ej. se borró la
   // categoría después de asignarles el gasto) — quedan "huérfanos" y antes
@@ -353,7 +359,7 @@ function PresupuestoView({ budgetCategories, movements, compromisos, accounts, p
   const gastoPorCat = (catId) => periodMovs.filter((m) => m.categoryId === catId).reduce((s, m) => s + Number(m.amount), 0);
   const programadoPorSub = (subId) => programados.filter((c) => c.subcategoryId === subId).reduce((s, c) => s + Number(c.amount), 0);
   const programadoPorCat = (catId) => programados.filter((c) => c.categoryId === catId).reduce((s, c) => s + Number(c.amount), 0);
-  const presupuestoPorCat = (cat) => cat.subcategories.reduce((s, sub) => s + Number(sub.budget || 0), 0);
+  const presupuestoPorCat = (cat) => cat.subcategories.reduce((s, sub) => s + budgetFor(sub, monthKey), 0);
 
   const MovRow = ({ m }) => {
     const acc = accounts.find((a) => a.id === m.accountId);
@@ -419,10 +425,11 @@ function PresupuestoView({ budgetCategories, movements, compromisos, accounts, p
                     const sg = gastoPorSub(sub.id);
                     const sProg = programadoPorSub(sub.id);
                     const sTotal = sg + sProg;
-                    const sp = sub.budget > 0 ? (sTotal / sub.budget) * 100 : 0;
-                    const gastoBarPct = sub.budget > 0 ? Math.min(100, (sg / sub.budget) * 100) : 0;
-                    const progBarPct = sub.budget > 0 ? Math.max(0, Math.min(100 - gastoBarPct, (sProg / sub.budget) * 100)) : 0;
-                    const sd = Number(sub.budget || 0) - sTotal;
+                    const subBudget = budgetFor(sub, monthKey);
+                    const sp = subBudget > 0 ? (sTotal / subBudget) * 100 : 0;
+                    const gastoBarPct = subBudget > 0 ? Math.min(100, (sg / subBudget) * 100) : 0;
+                    const progBarPct = subBudget > 0 ? Math.max(0, Math.min(100 - gastoBarPct, (sProg / subBudget) * 100)) : 0;
+                    const sd = subBudget - sTotal;
                     const subMovs = periodMovs.filter((m) => m.subcategoryId === sub.id);
                     const isSubOpen = openSub === sub.id;
                     return (
@@ -446,9 +453,12 @@ function PresupuestoView({ budgetCategories, movements, compromisos, accounts, p
                             {progBarPct > 0 && <div style={{ height: "100%", width: `${progBarPct}%`, background: "#E9D9A8" }} />}
                           </div>
                           {editingSub === sub.id && (
-                            <div style={{ display: "flex", gap: 8, marginTop: 10, alignItems: "center" }}>
-                              <input type="number" defaultValue={sub.budget} onBlur={(e) => onUpdateBudget(cat.id, sub.id, Number(e.target.value || 0))} style={{ flex: 1, padding: "8px 10px", borderRadius: 8, border: "1px solid #E5DFD0", fontSize: 13 }} />
-                              <button onClick={() => { onDeleteSubcategory(cat.id, sub.id); setEditingSub(null); }} style={{ background: "none", border: "none", color: "#B1645B" }}><Trash2 size={14} /></button>
+                            <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 10 }}>
+                              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                                <input key={sub.id + monthKey} type="number" defaultValue={subBudget} onBlur={(e) => onUpdateBudget(cat.id, sub.id, monthKey, Number(e.target.value || 0))} style={{ flex: 1, padding: "8px 10px", borderRadius: 8, border: "1px solid #E5DFD0", fontSize: 13 }} />
+                                <button onClick={() => { onDeleteSubcategory(cat.id, sub.id); setEditingSub(null); }} style={{ background: "none", border: "none", color: "#B1645B" }}><Trash2 size={14} /></button>
+                              </div>
+                              <div style={{ fontSize: 10, color: "#A39E8F" }}>Solo aplica a {ciclo.label}</div>
                             </div>
                           )}
                         </div>
