@@ -103,6 +103,23 @@ function getWeekRanges(inicioISO, finISO) {
 function budgetFor(sub, monthKey) { return Number(sub.budgetOverrides?.[monthKey] ?? sub.budget ?? 0); }
 
 function getSubcatName(bc, catId, subId) { return bc.find((c) => c.id === catId)?.subcategories.find((s) => s.id === subId)?.name || null; }
+
+function CompromisoRow({ c, budgetCategories, onTogglePaidCompromiso, onDeleteCompromiso }) {
+  const subName = getSubcatName(budgetCategories, c.categoryId, c.subcategoryId);
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 0 4px 12px", fontSize: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, color: c.paid ? "#A39E8F" : "#7A7568" }}>
+        <input type="checkbox" checked={!!c.paid} onChange={() => onTogglePaidCompromiso(c)} style={{ width: 14, height: 14, margin: 0 }} title={c.paid ? "Marcar como pendiente" : "Marcar como pagado"} />
+        <span style={{ textDecoration: c.paid ? "line-through" : "none" }}>→ {c.label}</span>
+        <span style={{ fontSize: 10, color: "#A39E8F" }}>({subName || "sin categoría"})</span>
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <span style={{ fontWeight: 600, textDecoration: c.paid ? "line-through" : "none", color: c.paid ? "#A39E8F" : "#1C2541" }}>{fmt(c.amount)}</span>
+        <button onClick={() => onDeleteCompromiso(c.id)} style={{ background: "none", border: "none", color: "#C9BFA8" }}><X size={12} /></button>
+      </div>
+    </div>
+  );
+}
 function getCatName(bc, catId) { return bc.find((c) => c.id === catId)?.name || null; }
 
 const ACCOUNT_TYPES = ["Débito", "Crédito"];
@@ -685,22 +702,9 @@ function ApartadosView({ accounts, movements, budgetCategories, incomeTemplate, 
                         })}
 
                         {/* Compromisos de efectivo */}
-                        {compromisosWeek.filter(c => c.incomeTemplateId === inc.id).map((c) => {
-                          const subName = getSubcatName(budgetCategories, c.categoryId, c.subcategoryId);
-                          return (
-                            <div key={c.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 0 4px 12px", fontSize: 12 }}>
-                              <div style={{ display: "flex", alignItems: "center", gap: 6, color: c.paid ? "#A39E8F" : "#7A7568" }}>
-                                <input type="checkbox" checked={!!c.paid} onChange={() => onTogglePaidCompromiso(c)} style={{ width: 14, height: 14, margin: 0 }} title={c.paid ? "Marcar como pendiente" : "Marcar como pagado"} />
-                                <span style={{ textDecoration: c.paid ? "line-through" : "none" }}>→ {c.label}</span>
-                                <span style={{ fontSize: 10, color: "#A39E8F" }}>({subName || "sin categoría"})</span>
-                              </div>
-                              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                                <span style={{ fontWeight: 600, textDecoration: c.paid ? "line-through" : "none", color: c.paid ? "#A39E8F" : "#1C2541" }}>{fmt(c.amount)}</span>
-                                <button onClick={() => onDeleteCompromiso(c.id)} style={{ background: "none", border: "none", color: "#C9BFA8" }}><X size={12} /></button>
-                              </div>
-                            </div>
-                          );
-                        })}
+                        {compromisosWeek.filter(c => c.incomeTemplateId === inc.id).map((c) => (
+                          <CompromisoRow key={c.id} c={c} budgetCategories={budgetCategories} onTogglePaidCompromiso={onTogglePaidCompromiso} onDeleteCompromiso={onDeleteCompromiso} />
+                        ))}
 
                         {/* Botones de asignar */}
                         <div style={{ display: "flex", gap: 8, marginTop: 6, alignItems: "center" }}>
@@ -716,6 +720,20 @@ function ApartadosView({ accounts, movements, budgetCategories, incomeTemplate, 
                     );
                   })
               }
+
+              {/* Compromisos cuyo ingreso recurrente ya no existe (se borró o
+                  se recreó con otro id) — sin esto quedaban contando en el
+                  total de Presupuesto pero invisibles aquí. */}
+              {(() => {
+                const huerfanos = compromisosWeek.filter((c) => !incomesThisWeek.some((inc) => inc.id === c.incomeTemplateId));
+                if (huerfanos.length === 0) return null;
+                return (
+                  <div style={{ padding: "10px 16px", borderTop: "1px solid #F0ECE0", background: "#FEF3CD" }}>
+                    <div style={{ fontSize: 10, color: "#7A6020", fontWeight: 600, marginBottom: 2 }}>⚠️ Sin ingreso asignado (el ingreso original ya no existe)</div>
+                    {huerfanos.map((c) => <CompromisoRow key={c.id} c={c} budgetCategories={budgetCategories} onTogglePaidCompromiso={onTogglePaidCompromiso} onDeleteCompromiso={onDeleteCompromiso} />)}
+                  </div>
+                );
+              })()}
 
               {/* Resumen libre */}
               <div style={{ padding: "8px 16px", borderTop: "1px solid #F0ECE0", display: "flex", justifyContent: "space-between", fontSize: 11 }}>
