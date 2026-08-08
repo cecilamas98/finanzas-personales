@@ -368,7 +368,10 @@ function PresupuestoView({ budgetCategories, movements, compromisos, accounts, p
   // Gastos cuya categoría/subcategoría ya no existe (p. ej. se borró la
   // categoría después de asignarles el gasto) — quedan "huérfanos" y antes
   // se mostraban en blanco sin explicación.
-  const sinCategoria = useMemo(() => periodMovs.filter((m) => !budgetCategories.some((c) => c.id === m.categoryId)), [periodMovs, budgetCategories]);
+  const sinCategoria = useMemo(() => periodMovs.filter((m) => {
+    const cat = budgetCategories.find((c) => c.id === m.categoryId);
+    return !cat || !cat.subcategories.some((s) => s.id === m.subcategoryId);
+  }), [periodMovs, budgetCategories]);
   // Compromisos de débito (Apartados) todavía sin pagar de este mismo ciclo:
   // cuentan como "programado" — spending anticipado que aún no es un gasto real.
   const programados = useMemo(() => (compromisos || []).filter((c) => c.pagoISO === ciclo.pago && !c.paid), [compromisos, ciclo]);
@@ -377,20 +380,24 @@ function PresupuestoView({ budgetCategories, movements, compromisos, accounts, p
   const programadoPorSub = (subId) => programados.filter((c) => c.subcategoryId === subId).reduce((s, c) => s + Number(c.amount), 0);
   const programadoPorCat = (catId) => programados.filter((c) => c.categoryId === catId).reduce((s, c) => s + Number(c.amount), 0);
   const presupuestoPorCat = (cat) => cat.subcategories.reduce((s, sub) => s + budgetFor(sub, monthKey), 0);
+  const totalPresupuesto = budgetCategories.reduce((s, c) => s + presupuestoPorCat(c), 0);
+  const totalGastado = periodMovs.reduce((s, m) => s + Number(m.amount), 0);
+  const totalProgramado = programados.reduce((s, c) => s + Number(c.amount), 0);
 
   const MovRow = ({ m }) => {
     const acc = accounts.find((a) => a.id === m.accountId);
     const cat = budgetCategories.find((c) => c.id === m.categoryId);
-    const subName = cat?.subcategories.find((s) => s.id === m.subcategoryId)?.name;
+    const sub = cat?.subcategories.find((s) => s.id === m.subcategoryId);
+    const huerfano = !cat || !sub;
     return (
       <div onClick={() => onEdit(m)} style={{ padding: "8px 16px", borderTop: "1px solid #F7F4EC", display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <div style={{ width: 6, height: 6, borderRadius: "50%", background: acc?.color || "#ccc", flexShrink: 0 }} />
           <div>
-            <div style={{ fontSize: 12, fontWeight: 500 }}>{m.label || subName || "—"}</div>
+            <div style={{ fontSize: 12, fontWeight: 500 }}>{m.label || sub?.name || "—"}</div>
             <div style={{ fontSize: 11, color: "#A39E8F" }}>
               {new Date(m.date+"T00:00:00").toLocaleDateString("es-MX",{day:"numeric",month:"short"})} · {acc?.name || "—"}
-              {!cat && <span style={{ color: "#C9A04D", fontWeight: 600 }}> · Sin categoría</span>}
+              {huerfano && <span style={{ color: "#C9A04D", fontWeight: 600 }}> · {!cat ? "Sin categoría" : "Sin subcategoría"}</span>}
             </div>
           </div>
         </div>
@@ -404,10 +411,20 @@ function PresupuestoView({ budgetCategories, movements, compromisos, accounts, p
 
   return (
     <div>
+      <div style={{ background: "#fff", border: "1px solid #E5DFD0", borderRadius: 14, padding: 16, marginBottom: 18, display: "flex", justifyContent: "space-between" }}>
+        <div>
+          <div style={{ fontSize: 11, color: "#A39E8F", textTransform: "uppercase", letterSpacing: 0.5 }}>Presupuestado</div>
+          <div className="dp" style={{ fontSize: 22, fontWeight: 600, marginTop: 2 }}>{fmt(totalPresupuesto)}</div>
+        </div>
+        <div style={{ textAlign: "right" }}>
+          <div style={{ fontSize: 11, color: "#A39E8F", textTransform: "uppercase", letterSpacing: 0.5 }}>Real + programado</div>
+          <div className="dp" style={{ fontSize: 22, fontWeight: 600, marginTop: 2 }}>{fmt(totalGastado + totalProgramado)}</div>
+        </div>
+      </div>
       {sinCategoria.length > 0 && (
         <div style={{ background: "#FEF3CD", border: "1px solid #F0D080", borderRadius: 14, overflow: "hidden", marginBottom: 18 }}>
           <div style={{ padding: 16 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: "#7A6020" }}>⚠️ Sin categoría ({sinCategoria.length})</div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: "#7A6020" }}>⚠️ Sin categoría o subcategoría ({sinCategoria.length})</div>
             <div style={{ fontSize: 11, color: "#7A6020", marginTop: 2 }}>{fmt(sinCategoria.reduce((s, m) => s + Number(m.amount), 0))} sin asignar · toca un gasto para corregirlo</div>
           </div>
           <div>{sinCategoria.map((m) => <MovRow key={m.id} m={m} />)}</div>
@@ -888,14 +905,20 @@ function AddMovementModal({ accounts, budgetCategories, ciclo, initial, onClose,
   const currentCat = budgetCategories.find((c) => c.id === categoryId);
   const subOptions = currentCat?.subcategories || [];
   const categoriaHuerfana = kind === "gasto" && categoryId && !currentCat;
+  const subcategoriaHuerfana = kind === "gasto" && !categoriaHuerfana && subcategoryId && !subOptions.some((s) => s.id === subcategoryId);
   const handleCategoryChange = (id) => { setCategoryId(id); const cat = budgetCategories.find((c) => c.id === id); setSubcategoryId(cat?.subcategories[0]?.id || ""); };
   const fueraDelCiclo = date < ciclo.inicio || date > ciclo.finGasto;
-  const submit = () => { if (!amount || !accountId) return; if (kind === "gasto" && (!categoryId || !subcategoryId)) return; onSave({ kind, amount: Number(amount), accountId, categoryId, subcategoryId, label, date }); };
+  const submit = () => { if (!amount || !accountId) return; if (kind === "gasto" && (!categoryId || !subcategoryId || categoriaHuerfana || subcategoriaHuerfana)) return; onSave({ kind, amount: Number(amount), accountId, categoryId, subcategoryId, label, date }); };
   return (
     <ModalShell title={isEdit ? "Editar movimiento" : "Nuevo movimiento"} onClose={onClose}>
       {categoriaHuerfana && (
         <div style={{ background: "#FEF3CD", border: "1px solid #F0D080", borderRadius: 10, padding: "8px 12px", fontSize: 12, color: "#7A6020", marginBottom: 12 }}>
           ⚠️ Este gasto tiene una categoría que ya no existe (por eso aparecía sin asignar). Elige una categoría y subcategoría válidas abajo.
+        </div>
+      )}
+      {subcategoriaHuerfana && (
+        <div style={{ background: "#FEF3CD", border: "1px solid #F0D080", borderRadius: 10, padding: "8px 12px", fontSize: 12, color: "#7A6020", marginBottom: 12 }}>
+          ⚠️ Este gasto tiene una subcategoría que ya no existe (por eso aparecía sin asignar). Elige una subcategoría válida abajo.
         </div>
       )}
       <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
@@ -908,7 +931,7 @@ function AddMovementModal({ accounts, budgetCategories, ciclo, initial, onClose,
         <label style={lS}>Categoría</label>
         <select style={iS} value={categoryId} onChange={(e) => handleCategoryChange(e.target.value)}>{categoriaHuerfana && <option value={categoryId}>⚠️ Categoría eliminada — elige otra</option>}{budgetCategories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
         <label style={lS}>Subcategoría</label>
-        <select style={iS} value={subcategoryId} onChange={(e) => setSubcategoryId(e.target.value)}>{subOptions.length === 0 && <option value="">Sin subcategorías</option>}{subOptions.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select>
+        <select style={iS} value={subcategoryId} onChange={(e) => setSubcategoryId(e.target.value)}>{subcategoriaHuerfana && <option value={subcategoryId}>⚠️ Subcategoría eliminada — elige otra</option>}{subOptions.length === 0 && <option value="">Sin subcategorías</option>}{subOptions.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select>
       </>)}
       <label style={lS}>Descripción (opcional)</label><input style={iS} type="text" placeholder="Ej. Netflix, super…" value={label} onChange={(e) => setLabel(e.target.value)} />
       <label style={lS}>
