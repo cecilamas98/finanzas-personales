@@ -6,12 +6,6 @@ const fmt = (n) => new Intl.NumberFormat("es-MX", { style: "currency", currency:
 const toISO = (d) => d.toISOString().slice(0, 10);
 const todayISO = toISO(new Date());
 
-// --- Datos migrados del artifact anterior ---
-const MIGRATED_ACCOUNTS = [{"name":"Citibanamex Leo","type":"Débito","initialBalance":0,"color":"#6B8F71","id":"acc_1781894776514"},{"name":"BanBajío Ceci","type":"Débito","initialBalance":0,"color":"#C9A04D","id":"acc_1781894809076"},{"name":"Stori Leo","type":"Crédito","initialBalance":0,"color":"#D87554","id":"acc_1781894815675"},{"name":"Didi Leo","type":"Crédito","initialBalance":0,"color":"#5B7DB1","id":"acc_1781894820384"},{"name":"Stori Ceci","type":"Crédito","initialBalance":0,"color":"#8C6BAE","id":"acc_1781894826483"},{"name":"Nu Ceci","type":"Crédito","initialBalance":0,"color":"#B1645B","id":"acc_1781894832783"},{"name":"Plata Ceci","type":"Crédito","initialBalance":0,"color":"#4F9DA6","id":"acc_1781894838918"},{"name":"Por pagar Ceci","type":"Crédito","initialBalance":0,"color":"#A6A15B","id":"acc_1781895252349"}];
-const MIGRATED_MOVEMENTS = [{"kind":"gasto","amount":932,"accountId":"acc_1781894826483","categoryId":"cat_esteban","subcategoryId":"sub_panales","label":"Pañales día y noche","date":"2026-06-13","id":"mov_1781895006825"},{"kind":"gasto","amount":932,"accountId":"acc_1781894826483","categoryId":"cat_esteban","subcategoryId":"sub_panales","label":"Pañales","date":"2026-06-19","id":"mov_1781895107228"},{"kind":"gasto","amount":587,"accountId":"acc_1781894826483","categoryId":"cat_esteban","subcategoryId":"sub_farmacia","label":"Probióticos, crema rozaduras ","date":"2026-06-19","id":"mov_1781895190190"},{"kind":"gasto","amount":132,"accountId":"acc_1781895252349","categoryId":"cat_esteban","subcategoryId":"sub_farmacia","label":"Crema golpes","date":"2026-06-19","id":"mov_1781895278906"},{"kind":"gasto","amount":430,"accountId":"acc_1781895252349","categoryId":"cat_alimentos","subcategoryId":"sub_mercado","label":"Proteína Ceci","date":"2026-06-19","id":"mov_1781895438897"},{"kind":"gasto","amount":500,"accountId":"acc_1781895252349","categoryId":"cat_casa","subcategoryId":"sub_adquis","label":"Fumigación ","date":"2026-06-19","id":"mov_1781895454006"},{"kind":"gasto","amount":524,"accountId":"acc_1781895252349","categoryId":"cat_casa","subcategoryId":"sub_internet","label":"Movistar","date":"2026-06-19","id":"mov_1781895474427"},{"kind":"gasto","amount":205,"accountId":"acc_1781894838918","categoryId":"cat_transporte","subcategoryId":"sub_taxis","label":"Uber","date":"2026-06-19","id":"mov_1781895512542"},{"kind":"gasto","amount":1288,"accountId":"acc_1781894838918","categoryId":"cat_alimentos","subcategoryId":"sub_mercado","label":"Walmart semana 1","date":"2026-06-19","id":"mov_1781895534919"},{"kind":"gasto","amount":786,"accountId":"acc_1781894838918","categoryId":"cat_alimentos","subcategoryId":"sub_comerfuera","label":"Alitas y McDonald's","date":"2026-06-19","id":"mov_1781895581998"},{"kind":"gasto","amount":800,"accountId":"acc_1781894820384","categoryId":"cat_alimentos","subcategoryId":"sub_aguatiendas","label":"Partido México","date":"2026-06-19","id":"mov_1781896315987"},{"kind":"gasto","amount":200,"accountId":"acc_1781894820384","categoryId":"cat_alimentos","subcategoryId":"sub_comerfuera","label":"Partido México ","date":"2026-06-19","id":"mov_1781896348837"},{"kind":"gasto","amount":375,"accountId":"acc_1781894838918","categoryId":"cat_casa","subcategoryId":"sub_internet","label":"Atnt","date":"2026-06-19","id":"mov_1781896408478"},{"kind":"gasto","amount":720,"accountId":"acc_1781895252349","categoryId":"cat_alimentos","subcategoryId":"sub_mercado","label":"Walmart","date":"2026-06-20","id":"mov_1782138382204"}];
-const MIGRATED_BUDGET = [{"name":"Casa","id":"cat_casa","subcategories":[{"id":"sub_internet","name":"Internet y Teléfono","budget":840},{"id":"sub_adquis","name":"Adquisiciones","budget":500},{"id":"sub_apps","name":"Apps","budget":490},{"id":"sub_alquiler","name":"Alquiler","budget":6000},{"id":"sub_limpieza","name":"Limpieza","budget":1600}]},{"name":"Alimentos","id":"cat_alimentos","subcategories":[{"id":"sub_mercado","name":"Mercado","budget":6000},{"id":"sub_comerfuera","name":"Comer fuera","budget":2400},{"id":"sub_croquetas","name":"Croquetas","budget":800},{"id":"sub_aguatiendas","name":"Agua y tienditas","budget":800}]},{"name":"Transporte","id":"cat_transporte","subcategories":[{"id":"sub_taxis","name":"Taxis","budget":1000},{"id":"sub_gasolina","name":"Gasolina","budget":2000}]},{"name":"Esteban","id":"cat_esteban","subcategories":[{"id":"sub_farmacia","name":"Farmacia","budget":300},{"id":"sub_panales","name":"Pañales","budget":1000},{"id":"sub_1781895061557","name":"Pediatra","budget":500}]},{"name":"Deudas","id":"cat_deudas","subcategories":[{"id":"sub_bravoleo","name":"Bravo Leo","budget":5300},{"id":"sub_bravoceci","name":"Bravo Ceci","budget":9500},{"id":"sub_iteso","name":"Iteso","budget":4000}]},{"name":"Otros","id":"cat_otros","subcategories":[{"id":"sub_salud","name":"Salud","budget":0},{"id":"sub_gustos","name":"Gustos","budget":0},{"id":"sub_viajes","name":"Viajes","budget":0}]}];
-const MIGRATED_INCOME = [{"person":"Leo","accountId":"acc_1781894776514","amount":7500,"weeks":[1,2,3,4],"id":"inc_1781895674629"},{"person":"Ceci","accountId":"acc_1781894809076","amount":6500,"weeks":[2,4],"id":"inc_1781895687442"}];
-
 // ── CICLO CONFIGURABLE ──────────────────────────────────────────────
 // El usuario define el domingo de inicio de su ciclo (ej. "2026-06-14").
 // A partir de ahí:
@@ -129,49 +123,27 @@ export default function FinanzasApp() {
     (async () => {
       let acc = [], mov = [], bc = [], inc = [], asg = [];
       try {
-        // IMPORTANTE: nunca confundir "la petición falló" con "no hay datos
-        // todavía" — antes ambos casos devolvían [] y un fallo de red
-        // disparaba la migración, que SOBREESCRIBE Google Sheets con los
-        // datos de ejemplo. Aquí cada llamada reporta si tuvo éxito o no,
-        // y solo se confía en un array vacío cuando sabemos que es real.
+        // Cada colección se lee de su propia fila en Supabase — un fallo de
+        // red en una no afecta a las demás, y nunca se escribe nada aquí:
+        // esta pantalla solo lee.
         const getJSON = async (key) => {
           try { const r = await storage.get(key); return { ok: true, data: r ? JSON.parse(r.value) : [] }; }
           catch { return { ok: false, data: [] }; }
         };
-        const [accR, movR, bcR, incR, asgR, seedR, domingoR] = await Promise.all([
+        const [accR, movR, bcR, incR, asgR, domingoR] = await Promise.all([
           getJSON("accounts"),
           getJSON("movements"),
           getJSON("budgetCategories"),
           getJSON("incomeTemplate"),
           getJSON("asignaciones"),
-          storage.get("seedDone").catch(() => null),
           storage.get("domingoRef").catch(() => null),
         ]);
         acc = accR.data; mov = movR.data; bc = bcR.data; inc = incR.data; asg = asgR.data;
         if (domingoR?.value) setDomingoRef(sanitizeDomingoISO(domingoR.value));
 
         const allOk = accR.ok && movR.ok && bcR.ok && incR.ok && asgR.ok;
-        const yaSembrado = seedR?.value === "1";
         if (!allOk) {
-          // Alguna petición falló: mostramos lo que tengamos (puede quedar
-          // incompleto) pero NUNCA escribimos nada — evita pisar datos reales
-          // por una falla temporal de red.
-          setError("Algunos datos no se pudieron cargar (falla de red). No se guardó nada para evitar sobrescribir tu información. Recarga la página.");
-        } else if (!yaSembrado) {
-          // Primera vez confirmada (todas las peticiones respondieron OK y
-          // no hay bandera de que ya se sembraron datos antes): si de verdad
-          // no hay cuentas, sembramos los datos migrados una sola vez.
-          if (acc.length === 0) {
-            acc = MIGRATED_ACCOUNTS;
-            mov = mov.length === 0 ? MIGRATED_MOVEMENTS : mov;
-            bc = bc.length === 0 ? MIGRATED_BUDGET : bc;
-            inc = inc.length === 0 ? MIGRATED_INCOME : inc;
-            await storage.set("accounts", JSON.stringify(acc));
-            await storage.set("movements", JSON.stringify(mov));
-            await storage.set("budgetCategories", JSON.stringify(bc));
-            await storage.set("incomeTemplate", JSON.stringify(inc));
-          }
-          await storage.set("seedDone", "1");
+          setError("Algunos datos no se pudieron cargar (falla de red). Recarga la página.");
         }
       } finally {
         // Garantiza que la pantalla de "Cargando…" siempre se destrabe,
@@ -201,16 +173,9 @@ export default function FinanzasApp() {
     }
   };
 
-  // "movements" está particionado por mes en el backend (ver apps-script.gs):
-  // en vez de reenviar el historial completo en cada gasto (que crecería sin
-  // límite con el uso), solo se reenvía el mes al que pertenece el
-  // movimiento que cambió.
-  const persistMovementsMonth = async (fullArray, affectedISODate) => {
-    const month = String(affectedISODate || "").slice(0, 7);
-    if (!month) { setError("No se pudo guardar el movimiento: fecha inválida."); return; }
-    const itemsForMonth = fullArray.filter((m) => String(m.date || "").slice(0, 7) === month);
+  const persistMovements = async (fullArray) => {
     try {
-      await storage.setMonth("movements", month, itemsForMonth);
+      await storage.set("movements", JSON.stringify(fullArray));
     } catch (e) {
       setError("No se pudo guardar el movimiento. Verifica tu conexión.");
     }
@@ -218,24 +183,17 @@ export default function FinanzasApp() {
 
   const addAccount = (a) => { const n = [...accounts, { ...a, id: "acc_" + Date.now() }]; setAccounts(n); persist("accounts", n); };
   const deleteAccount = (id) => { const n = accounts.filter((a) => a.id !== id); setAccounts(n); persist("accounts", n); };
-  const addMovement = (m) => { const n = [...movements, { ...m, id: "mov_" + Date.now() }]; setMovements(n); persistMovementsMonth(n, m.date); };
+  const addMovement = (m) => { const n = [...movements, { ...m, id: "mov_" + Date.now() }]; setMovements(n); persistMovements(n); };
   const deleteMovement = (id) => {
-    const target = movements.find((m) => m.id === id);
     const n = movements.filter((m) => m.id !== id);
-    setMovements(n); persistMovementsMonth(n, target?.date);
+    setMovements(n); persistMovements(n);
   };
   const updateMovement = (id, patch) => {
     const target = movements.find((m) => m.id === id);
     if (!target) return;
     const n = movements.map((m) => m.id === id ? { ...m, ...patch } : m);
     setMovements(n);
-    const oldMonth = String(target.date || "").slice(0, 7);
-    const newMonth = String(patch.date || target.date || "").slice(0, 7);
-    persistMovementsMonth(n, target.date);
-    // Si la fecha cambió de mes, el mes anterior y el nuevo quedan en hojas
-    // distintas — hay que reescribir ambas para que no se duplique ni se
-    // pierda el movimiento.
-    if (newMonth && newMonth !== oldMonth) persistMovementsMonth(n, patch.date);
+    persistMovements(n);
   };
   const addIncomeTemplate = (i) => { const n = [...incomeTemplate, { ...i, id: "inc_" + Date.now() }]; setIncomeTemplate(n); persist("incomeTemplate", n); };
   const deleteIncomeTemplate = (id) => { const n = incomeTemplate.filter((i) => i.id !== id); setIncomeTemplate(n); persist("incomeTemplate", n); const na = asignaciones.filter((a) => a.incomeTemplateId !== id); setAsignaciones(na); persist("asignaciones", na); };
@@ -255,9 +213,8 @@ export default function FinanzasApp() {
     const n = compromisos.filter((c) => c.id !== id);
     setCompromisos(n); persist("compromisos", n);
     if (target?.movementId) {
-      const movTarget = movements.find((m) => m.id === target.movementId);
       const nMov = movements.filter((m) => m.id !== target.movementId);
-      setMovements(nMov); persistMovementsMonth(nMov, movTarget?.date);
+      setMovements(nMov); persistMovements(nMov);
     }
   };
   // Marca/desmarca un compromiso de débito como pagado. Al pagarlo, crea el
@@ -268,13 +225,12 @@ export default function FinanzasApp() {
       const accountId = incomeTemplate.find((i) => i.id === c.incomeTemplateId)?.accountId;
       const movId = "mov_" + Date.now();
       const nMov = [...movements, { id: movId, kind: "gasto", amount: c.amount, accountId, categoryId: c.categoryId, subcategoryId: c.subcategoryId, label: c.label, date: todayISO }];
-      setMovements(nMov); persistMovementsMonth(nMov, todayISO);
+      setMovements(nMov); persistMovements(nMov);
       const nComp = compromisos.map((x) => x.id === c.id ? { ...x, paid: true, movementId: movId } : x);
       setCompromisos(nComp); persist("compromisos", nComp);
     } else {
-      const movTarget = movements.find((m) => m.id === c.movementId);
       const nMov = movements.filter((m) => m.id !== c.movementId);
-      setMovements(nMov); persistMovementsMonth(nMov, movTarget?.date);
+      setMovements(nMov); persistMovements(nMov);
       const nComp = compromisos.map((x) => x.id === c.id ? { ...x, paid: false, movementId: null } : x);
       setCompromisos(nComp); persist("compromisos", nComp);
     }
