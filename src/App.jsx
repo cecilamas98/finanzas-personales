@@ -778,7 +778,7 @@ function ApartadosView({ accounts, movements, budgetCategories, incomeTemplate, 
         </div>
       )}
 
-      {showAddIncome && <AddIncomeModal accounts={debitAccounts} onClose={() => setShowAddIncome(false)} onSave={(inc) => { onAddIncome(inc); setShowAddIncome(false); }} />}
+      {showAddIncome && <AddIncomeModal accounts={debitAccounts} numWeeks={semanasApartado.length} onClose={() => setShowAddIncome(false)} onSave={(inc) => { onAddIncome(inc); setShowAddIncome(false); }} />}
       {assignFor && <AssignModal info={assignFor} creditAccounts={creditAccounts} deudaPendiente={(accId) => Math.max(0, totalDeudaFor(accId) - asignadoFor(accId))} onClose={() => setAssignFor(null)} onSave={(creditAccountId, amount) => { onAddAsignacion({ pagoISO: ciclo.pago, weekIdx: assignFor.weekIdx, incomeTemplateId: assignFor.incomeId, creditAccountId, amount }); setAssignFor(null); }} />}
       {addingCompromisoFor && <CompromisoModal info={addingCompromisoFor} budgetCategories={budgetCategories} onClose={() => setAddingCompromisoFor(null)} onSave={(label, amount, categoryId, subcategoryId) => { onAddCompromiso({ pagoISO: ciclo.pago, weekIdx: addingCompromisoFor.weekIdx, incomeTemplateId: addingCompromisoFor.incomeId, label, amount, categoryId, subcategoryId }); setAddingCompromisoFor(null); }} />}
     </div>
@@ -989,8 +989,9 @@ function CompromisoModal({ info, budgetCategories, onClose, onSave }) {
   );
 }
 
-function AddIncomeModal({ accounts, onClose, onSave }) {
-  const [person, setPerson] = useState(""); const [accountId, setAccountId] = useState(accounts[0]?.id || ""); const [amount, setAmount] = useState(""); const [weeks, setWeeks] = useState([1,2,3,4]);
+function AddIncomeModal({ accounts, numWeeks, onClose, onSave }) {
+  const allWeeks = useMemo(() => Array.from({ length: numWeeks || 4 }, (_, i) => i + 1), [numWeeks]);
+  const [person, setPerson] = useState(""); const [accountId, setAccountId] = useState(accounts[0]?.id || ""); const [amount, setAmount] = useState(""); const [weeks, setWeeks] = useState(allWeeks);
   const toggleWeek = (w) => setWeeks((p) => p.includes(w) ? p.filter((x) => x !== w) : [...p, w].sort());
   const submit = () => { if (!person || !amount || !accountId || weeks.length === 0) return; onSave({ person, accountId, amount: Number(amount), weeks }); };
   return (
@@ -1000,7 +1001,7 @@ function AddIncomeModal({ accounts, onClose, onSave }) {
       <select style={iS} value={accountId} onChange={(e) => setAccountId(e.target.value)}>{accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select>
       <label style={lS}>Monto por semana</label><input style={iS} type="number" inputMode="decimal" placeholder="0" value={amount} onChange={(e) => setAmount(e.target.value)} />
       <label style={lS}>¿En qué semanas llega?</label>
-      <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>{[1,2,3,4].map((w) => <button key={w} onClick={() => toggleWeek(w)} style={{ flex: 1, padding: 10, borderRadius: 10, border: weeks.includes(w) ? "1.5px solid #D87554" : "1px solid #E5DFD0", background: weeks.includes(w) ? "#FBEEE8" : "#fff", fontSize: 13, fontWeight: 600, color: "#1C2541" }}>S{w}</button>)}</div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 16 }}>{allWeeks.map((w) => <button key={w} onClick={() => toggleWeek(w)} style={{ flex: "1 0 20%", padding: 10, borderRadius: 10, border: weeks.includes(w) ? "1.5px solid #D87554" : "1px solid #E5DFD0", background: weeks.includes(w) ? "#FBEEE8" : "#fff", fontSize: 13, fontWeight: 600, color: "#1C2541" }}>S{w}</button>)}</div>
       <button onClick={submit} style={{ width: "100%", padding: 14, background: "#1C2541", color: "#F7F4EC", border: "none", borderRadius: 12, fontSize: 14, fontWeight: 600 }}>Guardar</button>
     </ModalShell>
   );
