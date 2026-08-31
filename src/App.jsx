@@ -6,77 +6,76 @@ const fmt = (n) => new Intl.NumberFormat("es-MX", { style: "currency", currency:
 const toISO = (d) => d.toISOString().slice(0, 10);
 const todayISO = toISO(new Date());
 
-// ── CICLO CONFIGURABLE ──────────────────────────────────────────────
-// El usuario define el domingo de inicio de su ciclo (ej. "2026-06-14").
-// A partir de ahí:
-//   Semanas de GASTO  : inicio → inicio + 27 días (4 semanas exactas)
-//   Semanas de APARTO : inicio + 16 días → día 30 del mes siguiente al inicio
-//   Fecha de PAGO     : día 30 del mes siguiente al inicio
+// ── CICLO ────────────────────────────────────────────────────────────
+//   Semanas de GASTO  : SIEMPRE del día 12 de un mes al día 11 del mes
+//                       siguiente (fijo, automático según el mes que se
+//                       esté viendo — no requiere configuración).
+//   Fecha de PAGO     : día 30 (o último día del mes si es más corto) del
+//                       mes en que termina el ciclo de gasto.
+//   Semanas de APARTO : el usuario elige a mano, cada ciclo, el viernes de
+//                       entrada y el viernes final; pueden ser más o menos
+//                       de 4 semanas (ver apartadoRangos).
 
-function getCicloFromDomingo(domingoISO) {
-  const inicio = new Date(domingoISO + "T00:00:00");
-  const finGasto = new Date(inicio);
-  finGasto.setDate(finGasto.getDate() + 27); // 4 semanas
-
-  // Pago: día 30 del mes SIGUIENTE al inicio
-  const pagoMes = inicio.getMonth() + 1 > 11 ? 0 : inicio.getMonth() + 1;
-  const pagoYear = inicio.getMonth() + 1 > 11 ? inicio.getFullYear() + 1 : inicio.getFullYear();
-  const maxDay = new Date(pagoYear, pagoMes + 1, 0).getDate();
-  const pago = new Date(pagoYear, pagoMes, Math.min(30, maxDay));
-
-  // Apartados: inicio + 16 días hasta el día de pago
-  const inicioApartado = new Date(inicio);
-  inicioApartado.setDate(inicioApartado.getDate() + 16);
-
+// year/month (0-indexado) = año y mes del día 12 en que arranca el ciclo de gasto.
+function getCicloFromCycleMonth(year, month) {
+  const inicio = new Date(year, month, 12);
+  const finMes = month + 1 > 11 ? 0 : month + 1;
+  const finYear = month + 1 > 11 ? year + 1 : year;
+  const finGasto = new Date(finYear, finMes, 11);
+  const maxDay = new Date(finYear, finMes + 1, 0).getDate();
+  const pago = new Date(finYear, finMes, Math.min(30, maxDay));
   const label = pago.toLocaleDateString("es-MX", { month: "long", year: "numeric" });
 
   return {
+    cycleYear: year,
+    cycleMonth: month,
     inicio: toISO(inicio),
     finGasto: toISO(finGasto),
-    inicioApartado: toISO(inicioApartado),
     pago: toISO(pago),
     label: label.charAt(0).toUpperCase() + label.slice(1),
   };
 }
 
 // Para compatibilidad con el resto del código (presupuesto usa periodo.inicio y periodo.fin)
-function getPeriodoFromDomingo(domingoISO) {
-  const c = getCicloFromDomingo(domingoISO);
+function getPeriodoFromCiclo(c) {
   return { inicio: c.inicio, fin: c.finGasto, pago: c.pago, label: c.label };
 }
 
-// Normaliza cualquier valor recibido (p.ej. "2026-06-14T06:00:00.000Z" que
-// Google Sheets devuelve al convertir el string en una celda de fecha) a un
-// YYYY-MM-DD válido, o cae al default si no se puede interpretar.
-function sanitizeDomingoISO(val) {
-  const datePart = String(val || "").slice(0, 10);
-  const d = new Date(datePart + "T00:00:00");
-  return isNaN(d.getTime()) ? DEFAULT_DOMINGO : datePart;
-}
-
-// Dado hoy, encuentra el domingo de inicio del ciclo activo
-// basándose en el domingo de referencia guardado
-function getCicloActivo(domingoRef) {
-  const ref = new Date(sanitizeDomingoISO(domingoRef) + "T00:00:00");
+// Dado hoy, encuentra el mes de ciclo activo (el día 12 que da inicio al
+// ciclo de gasto que contiene la fecha de hoy).
+function getCicloActivoMes() {
   const today = new Date(todayISO + "T00:00:00");
-  // Avanzar de 4 en 4 semanas desde ref hasta encontrar el ciclo que contiene hoy
-  let cursor = new Date(ref);
-  // Límite de seguridad: ~500 años de margen, nunca debería alcanzarse,
-  // pero evita que una fecha inválida cuelgue el hilo principal para siempre.
-  for (let i = 0; i < 10000; i++) {
-    const finGasto = new Date(cursor);
-    finGasto.setDate(finGasto.getDate() + 27);
-    if (today <= finGasto) return toISO(cursor);
-    cursor.setDate(cursor.getDate() + 28);
-  }
-  return DEFAULT_DOMINGO;
+  if (today.getDate() >= 12) return { year: today.getFullYear(), month: today.getMonth() };
+  const m = today.getMonth() - 1;
+  return m < 0 ? { year: today.getFullYear() - 1, month: 11 } : { year: today.getFullYear(), month: m };
 }
 
-// Desplaza un domingo de referencia N ciclos (28 días exactos cada uno)
-function shiftDomingo(domingoISO, n) {
-  const d = new Date(domingoISO + "T00:00:00");
-  d.setDate(d.getDate() + n * 28);
+// Desplaza un mes de ciclo N meses calendario
+function shiftCycleMonth(year, month, n) {
+  const total = year * 12 + month + n;
+  return { year: Math.floor(total / 12), month: ((total % 12) + 12) % 12 };
+}
+
+// Viernes más cercano (hacia adelante o atrás, el que quede más cerca) a una fecha ISO.
+function nearestFriday(iso) {
+  const d = new Date(iso + "T00:00:00");
+  const day = d.getDay(); // 0=domingo … 5=viernes … 6=sábado
+  const adelante = (5 - day + 7) % 7;
+  const atras = (day - 5 + 7) % 7;
+  d.setDate(d.getDate() + (adelante <= atras ? adelante : -atras));
   return toISO(d);
+}
+
+// Rango de apartados por default (antes de que el usuario elija uno propio
+// para este ciclo): viernes más cercano a mitad de ciclo → viernes más
+// cercano a la fecha de pago.
+function defaultApartadoRange(ciclo) {
+  const mitad = new Date(ciclo.inicio + "T00:00:00");
+  mitad.setDate(mitad.getDate() + 16);
+  let start = nearestFriday(toISO(mitad));
+  let end = nearestFriday(ciclo.pago);
+  if (start > end) [start, end] = [end, start];
+  return { start, end };
 }
 
 function getWeekRanges(inicioISO, finISO) {
@@ -124,7 +123,6 @@ function getCatName(bc, catId) { return bc.find((c) => c.id === catId)?.name || 
 
 const ACCOUNT_TYPES = ["Débito", "Crédito"];
 const ACCOUNT_COLORS = ["#6B8F71", "#C9A04D", "#D87554", "#5B7DB1", "#8C6BAE", "#B1645B", "#4F9DA6", "#A6A15B"];
-const DEFAULT_DOMINGO = "2026-06-14"; // domingo de inicio del ciclo actual
 
 export default function FinanzasApp() {
   const [accounts, setAccounts] = useState([]);
@@ -132,7 +130,7 @@ export default function FinanzasApp() {
   const [budgetCategories, setBudgetCategories] = useState([]);
   const [incomeTemplate, setIncomeTemplate] = useState([]);
   const [asignaciones, setAsignaciones] = useState([]);
-  const [domingoRef, setDomingoRef] = useState(DEFAULT_DOMINGO);
+  const [apartadoRangos, setApartadoRangos] = useState({});
   const [monthOffset, setMonthOffset] = useState(0);
   const [loaded, setLoaded] = useState(false);
   const [tab, setTab] = useState("presupuesto");
@@ -152,16 +150,16 @@ export default function FinanzasApp() {
           try { const r = await storage.get(key); return { ok: true, data: r ? JSON.parse(r.value) : [] }; }
           catch { return { ok: false, data: [] }; }
         };
-        const [accR, movR, bcR, incR, asgR, domingoR] = await Promise.all([
+        const [accR, movR, bcR, incR, asgR, arR] = await Promise.all([
           getJSON("accounts"),
           getJSON("movements"),
           getJSON("budgetCategories"),
           getJSON("incomeTemplate"),
           getJSON("asignaciones"),
-          storage.get("domingoRef").catch(() => null),
+          (async () => { try { const r = await storage.get("apartadoRangos"); return { ok: true, data: r ? JSON.parse(r.value) : {} }; } catch { return { ok: false, data: {} }; } })(),
         ]);
         acc = accR.data; mov = movR.data; bc = bcR.data; inc = incR.data; asg = asgR.data;
-        if (domingoR?.value) setDomingoRef(sanitizeDomingoISO(domingoR.value));
+        setApartadoRangos(arR.data);
 
         const allOk = accR.ok && movR.ok && bcR.ok && incR.ok && asgR.ok;
         if (!allOk) {
@@ -180,11 +178,10 @@ export default function FinanzasApp() {
     })();
   }, []);
 
-  const saveDomingo = async (val) => {
-    const clean = sanitizeDomingoISO(val);
-    setDomingoRef(clean);
-    setMonthOffset(0);
-    await storage.set("domingoRef", clean);
+  const saveApartadoRango = (pagoISO, start, end) => {
+    const n = { ...apartadoRangos, [pagoISO]: { start, end } };
+    setApartadoRangos(n);
+    persist("apartadoRangos", n);
   };
 
   const persist = async (key, value) => {
@@ -285,14 +282,18 @@ export default function FinanzasApp() {
     const n = budgetCategories.filter((c) => c.id !== catId); setBudgetCategories(n); persist("budgetCategories", n);
   };
 
-  // Todo el ciclo se deriva del domingo de referencia, desplazado por monthOffset
-  // ciclos (±1 = un mes antes/después) para poder navegar el historial.
-  const domingoBase = useMemo(() => getCicloActivo(domingoRef), [domingoRef]);
-  const domingoActivo = useMemo(() => shiftDomingo(domingoBase, monthOffset), [domingoBase, monthOffset]);
-  const ciclo = useMemo(() => getCicloFromDomingo(domingoActivo), [domingoActivo]);
-  const periodo = useMemo(() => ({ inicio: ciclo.inicio, fin: ciclo.finGasto, pago: ciclo.pago, label: ciclo.label }), [ciclo]);
+  // El ciclo de gasto es fijo (12 del mes → 11 del mes siguiente) y se
+  // desplaza por monthOffset meses calendario (±1 = un mes antes/después)
+  // para poder navegar el historial.
+  const cicloMesBase = useMemo(() => getCicloActivoMes(), []);
+  const cicloMesActivo = useMemo(() => shiftCycleMonth(cicloMesBase.year, cicloMesBase.month, monthOffset), [cicloMesBase, monthOffset]);
+  const ciclo = useMemo(() => getCicloFromCycleMonth(cicloMesActivo.year, cicloMesActivo.month), [cicloMesActivo]);
+  const periodo = useMemo(() => getPeriodoFromCiclo(ciclo), [ciclo]);
   const semanasGasto = useMemo(() => getWeekRanges(ciclo.inicio, ciclo.finGasto), [ciclo]);
-  const semanasApartado = useMemo(() => getWeekRanges(ciclo.inicioApartado, ciclo.pago), [ciclo]);
+  // El rango de apartados (viernes de entrada/final) lo elige el usuario a
+  // mano por ciclo; mientras no lo haya configurado usamos un default.
+  const apartadoRango = useMemo(() => apartadoRangos[ciclo.pago] || defaultApartadoRange(ciclo), [apartadoRangos, ciclo]);
+  const semanasApartado = useMemo(() => getWeekRanges(apartadoRango.start, apartadoRango.end), [apartadoRango]);
 
 
   if (!loaded) return <div style={{ minHeight: "100vh", background: "#F7F4EC", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "system-ui", color: "#1C2541" }}>Cargando…</div>;
@@ -344,8 +345,8 @@ export default function FinanzasApp() {
       <div style={{ maxWidth: 720, margin: "0 auto", padding: "20px 20px 100px" }}>
         {error && <div style={{ background: "#B1645B", color: "#fff", padding: 10, borderRadius: 8, marginBottom: 16, fontSize: 13, display: "flex", justifyContent: "space-between" }}>{error}<button onClick={() => setError(null)} style={{ background: "none", border: "none", color: "#fff" }}><X size={14} /></button></div>}
         {tab === "presupuesto" && <PresupuestoView budgetCategories={budgetCategories} movements={movements} compromisos={compromisos} accounts={accounts} periodo={periodo} ciclo={ciclo} onUpdateBudget={updateSubcategoryBudget} onAddSubcategory={addSubcategory} onDeleteSubcategory={deleteSubcategory} onAddCategory={addCategory} onDeleteCategory={deleteCategory} onDelete={deleteMovement} onEdit={setEditingMov} />}
-        {tab === "apartados" && <ApartadosView accounts={accounts} movements={movements} budgetCategories={budgetCategories} incomeTemplate={incomeTemplate} asignaciones={asignaciones} compromisos={compromisos} ciclo={ciclo} semanasApartado={semanasApartado} onAddIncome={addIncomeTemplate} onDeleteIncome={deleteIncomeTemplate} onAddAsignacion={addAsignacion} onDeleteAsignacion={deleteAsignacion} onAddCompromiso={addCompromiso} onDeleteCompromiso={deleteCompromiso} onTogglePaidCompromiso={toggleCompromisoPaid} />}
-        {tab === "cuentas" && <CuentasView accounts={accounts} movements={movements} budgetCategories={budgetCategories} domingoRef={domingoRef} onSaveDomingo={saveDomingo} ciclo={ciclo} semanasGasto={semanasGasto} onAddAccount={() => setShowAddAcc(true)} onDeleteAccount={deleteAccount} />}
+        {tab === "apartados" && <ApartadosView key={ciclo.pago} accounts={accounts} movements={movements} budgetCategories={budgetCategories} incomeTemplate={incomeTemplate} asignaciones={asignaciones} compromisos={compromisos} ciclo={ciclo} semanasApartado={semanasApartado} apartadoRango={apartadoRango} onSaveApartadoRango={(start, end) => saveApartadoRango(ciclo.pago, start, end)} onAddIncome={addIncomeTemplate} onDeleteIncome={deleteIncomeTemplate} onAddAsignacion={addAsignacion} onDeleteAsignacion={deleteAsignacion} onAddCompromiso={addCompromiso} onDeleteCompromiso={deleteCompromiso} onTogglePaidCompromiso={toggleCompromisoPaid} />}
+        {tab === "cuentas" && <CuentasView accounts={accounts} movements={movements} budgetCategories={budgetCategories} ciclo={ciclo} semanasGasto={semanasGasto} onAddAccount={() => setShowAddAcc(true)} onDeleteAccount={deleteAccount} />}
       </div>
 
       {accounts.length > 0 && <button onClick={() => setShowAddMov(true)} style={{ position: "fixed", bottom: 24, right: 24, width: 56, height: 56, borderRadius: "50%", background: "#D87554", color: "#fff", border: "none", boxShadow: "0 4px 14px rgba(0,0,0,0.25)", display: "flex", alignItems: "center", justifyContent: "center" }}><Plus size={26} /></button>}
@@ -605,12 +606,15 @@ function AddCategoryInline({ onCancel, onSave }) {
 }
 
 
-function ApartadosView({ accounts, movements, budgetCategories, incomeTemplate, asignaciones, compromisos, ciclo, semanasApartado, onAddIncome, onDeleteIncome, onAddAsignacion, onDeleteAsignacion, onAddCompromiso, onDeleteCompromiso, onTogglePaidCompromiso }) {
+function ApartadosView({ accounts, movements, budgetCategories, incomeTemplate, asignaciones, compromisos, ciclo, semanasApartado, apartadoRango, onSaveApartadoRango, onAddIncome, onDeleteIncome, onAddAsignacion, onDeleteAsignacion, onAddCompromiso, onDeleteCompromiso, onTogglePaidCompromiso }) {
   const creditAccounts = accounts.filter((a) => a.type === "Crédito");
   const debitAccounts = accounts.filter((a) => a.type === "Débito");
   const [showAddIncome, setShowAddIncome] = useState(false);
   const [assignFor, setAssignFor] = useState(null);
   const [addingCompromisoFor, setAddingCompromisoFor] = useState(null); // weekIdx
+  const [editRango, setEditRango] = useState(false);
+  const [tempStart, setTempStart] = useState(apartadoRango.start);
+  const [tempEnd, setTempEnd] = useState(apartadoRango.end);
 
   const totalDeudaFor = (accId) => movements
     .filter((m) => m.accountId === accId && m.kind === "gasto" && m.date >= ciclo.inicio && m.date <= ciclo.finGasto)
@@ -654,6 +658,30 @@ function ApartadosView({ accounts, movements, budgetCategories, incomeTemplate, 
             </div>
           );
         })}
+      </div>
+
+      {/* Semanas de apartado: viernes de entrada / final elegidos a mano */}
+      <div style={{ background: "#fff", border: "1px solid #E5DFD0", borderRadius: 14, padding: 14, marginBottom: 16 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>Semanas de apartado</div>
+        {editRango ? (
+          <div>
+            <label style={lS}>Viernes de entrada</label>
+            <input style={iS} type="date" value={tempStart} onChange={(e) => setTempStart(nearestFriday(e.target.value))} />
+            <label style={lS}>Viernes final</label>
+            <input style={iS} type="date" value={tempEnd} onChange={(e) => setTempEnd(nearestFriday(e.target.value))} />
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={() => { setTempStart(apartadoRango.start); setTempEnd(apartadoRango.end); setEditRango(false); }} style={{ flex: 1, padding: 10, borderRadius: 10, border: "1px solid #E5DFD0", background: "#fff", fontSize: 13 }}>Cancelar</button>
+              <button onClick={() => { if (tempStart && tempEnd && tempStart <= tempEnd) { onSaveApartadoRango(tempStart, tempEnd); setEditRango(false); } }} style={{ flex: 1, padding: 10, borderRadius: 10, border: "none", background: "#1C2541", color: "#fff", fontSize: 13, fontWeight: 600 }}>Guardar</button>
+            </div>
+          </div>
+        ) : (
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div style={{ fontSize: 12, color: "#7A7568" }}>
+              {new Date(apartadoRango.start+"T00:00:00").toLocaleDateString("es-MX",{day:"numeric",month:"short"})} → {new Date(apartadoRango.end+"T00:00:00").toLocaleDateString("es-MX",{day:"numeric",month:"short"})} · {semanasApartado.length} semana{semanasApartado.length === 1 ? "" : "s"}
+            </div>
+            <button onClick={() => { setTempStart(apartadoRango.start); setTempEnd(apartadoRango.end); setEditRango(true); }} style={{ fontSize: 12, color: "#D87554", background: "none", border: "none", fontWeight: 600 }}>Cambiar</button>
+          </div>
+        )}
       </div>
 
       {/* Header ingresos */}
@@ -778,7 +806,7 @@ function ApartadosView({ accounts, movements, budgetCategories, incomeTemplate, 
         </div>
       )}
 
-      {showAddIncome && <AddIncomeModal accounts={debitAccounts} onClose={() => setShowAddIncome(false)} onSave={(inc) => { onAddIncome(inc); setShowAddIncome(false); }} />}
+      {showAddIncome && <AddIncomeModal accounts={debitAccounts} numWeeks={semanasApartado.length} onClose={() => setShowAddIncome(false)} onSave={(inc) => { onAddIncome(inc); setShowAddIncome(false); }} />}
       {assignFor && <AssignModal info={assignFor} creditAccounts={creditAccounts} deudaPendiente={(accId) => Math.max(0, totalDeudaFor(accId) - asignadoFor(accId))} onClose={() => setAssignFor(null)} onSave={(creditAccountId, amount) => { onAddAsignacion({ pagoISO: ciclo.pago, weekIdx: assignFor.weekIdx, incomeTemplateId: assignFor.incomeId, creditAccountId, amount }); setAssignFor(null); }} />}
       {addingCompromisoFor && <CompromisoModal info={addingCompromisoFor} budgetCategories={budgetCategories} onClose={() => setAddingCompromisoFor(null)} onSave={(label, amount, categoryId, subcategoryId) => { onAddCompromiso({ pagoISO: ciclo.pago, weekIdx: addingCompromisoFor.weekIdx, incomeTemplateId: addingCompromisoFor.incomeId, label, amount, categoryId, subcategoryId }); setAddingCompromisoFor(null); }} />}
     </div>
@@ -832,10 +860,7 @@ function AccCard({ acc, movements, ciclo, budgetCategories, balanceFor, onDelete
   );
 }
 
-function CuentasView({ accounts, movements, budgetCategories, domingoRef, onSaveDomingo, ciclo, semanasGasto, onAddAccount, onDeleteAccount }) {
-  const [editDomingo, setEditDomingo] = useState(false);
-  const [tempDomingo, setTempDomingo] = useState(domingoRef);
-
+function CuentasView({ accounts, movements, budgetCategories, ciclo, semanasGasto, onAddAccount, onDeleteAccount }) {
   const balanceFor = (acc) => {
     const movs = movements.filter((m) => m.accountId === acc.id && m.date >= ciclo.inicio && m.date <= ciclo.finGasto);
     return movs.filter((m) => m.kind === "ingreso").reduce((s, m) => s + Number(m.amount), 0) - movs.filter((m) => m.kind === "gasto").reduce((s, m) => s + Number(m.amount), 0);
@@ -853,22 +878,8 @@ function CuentasView({ accounts, movements, budgetCategories, domingoRef, onSave
               <span>{new Date(w.start+"T00:00:00").toLocaleDateString("es-MX",{day:"numeric",month:"short"})} – {new Date(w.end+"T00:00:00").toLocaleDateString("es-MX",{day:"numeric",month:"short"})}</span>
             </div>
           ))}
-          <div style={{ marginTop: 6, color: "#A39E8F" }}>Apartados {new Date(ciclo.inicioApartado+"T00:00:00").toLocaleDateString("es-MX",{day:"numeric",month:"short"})} → pago {new Date(ciclo.pago+"T00:00:00").toLocaleDateString("es-MX",{day:"numeric",month:"short"})}</div>
+          <div style={{ marginTop: 6, color: "#A39E8F" }}>Pago {new Date(ciclo.pago+"T00:00:00").toLocaleDateString("es-MX",{day:"numeric",month:"short"})}</div>
         </div>
-        {editDomingo ? (
-          <div>
-            <div style={{ fontSize: 12, color: "#7A7568", marginBottom: 6 }}>Domingo de inicio del ciclo:</div>
-            <input type="date" value={tempDomingo} onChange={(e) => setTempDomingo(e.target.value)} style={{ ...iS, marginBottom: 8 }} />
-            <div style={{ display: "flex", gap: 8 }}>
-              <button onClick={() => setEditDomingo(false)} style={{ flex: 1, padding: 10, borderRadius: 10, border: "1px solid #E5DFD0", background: "#fff", fontSize: 13 }}>Cancelar</button>
-              <button onClick={() => { onSaveDomingo(tempDomingo); setEditDomingo(false); }} style={{ flex: 1, padding: 10, borderRadius: 10, border: "none", background: "#1C2541", color: "#fff", fontSize: 13, fontWeight: 600 }}>Actualizar ciclo</button>
-            </div>
-          </div>
-        ) : (
-          <button onClick={() => { setTempDomingo(domingoRef); setEditDomingo(true); }} style={{ fontSize: 12, color: "#D87554", background: "none", border: "none", fontWeight: 600, padding: 0 }}>
-            Cambiar domingo de inicio
-          </button>
-        )}
       </div>
       {accounts.length === 0 ? <div style={{ textAlign: "center", padding: "40px 20px", color: "#A39E8F" }}><Wallet size={32} style={{ marginBottom: 10, opacity: 0.5 }} /><div style={{ fontSize: 14 }}>Aún no agregas cuentas.</div></div>
         : <div style={{ display: "grid", gap: 10, marginBottom: 16 }}>
@@ -989,8 +1000,9 @@ function CompromisoModal({ info, budgetCategories, onClose, onSave }) {
   );
 }
 
-function AddIncomeModal({ accounts, onClose, onSave }) {
-  const [person, setPerson] = useState(""); const [accountId, setAccountId] = useState(accounts[0]?.id || ""); const [amount, setAmount] = useState(""); const [weeks, setWeeks] = useState([1,2,3,4]);
+function AddIncomeModal({ accounts, numWeeks, onClose, onSave }) {
+  const allWeeks = useMemo(() => Array.from({ length: numWeeks || 4 }, (_, i) => i + 1), [numWeeks]);
+  const [person, setPerson] = useState(""); const [accountId, setAccountId] = useState(accounts[0]?.id || ""); const [amount, setAmount] = useState(""); const [weeks, setWeeks] = useState(allWeeks);
   const toggleWeek = (w) => setWeeks((p) => p.includes(w) ? p.filter((x) => x !== w) : [...p, w].sort());
   const submit = () => { if (!person || !amount || !accountId || weeks.length === 0) return; onSave({ person, accountId, amount: Number(amount), weeks }); };
   return (
@@ -1000,7 +1012,7 @@ function AddIncomeModal({ accounts, onClose, onSave }) {
       <select style={iS} value={accountId} onChange={(e) => setAccountId(e.target.value)}>{accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select>
       <label style={lS}>Monto por semana</label><input style={iS} type="number" inputMode="decimal" placeholder="0" value={amount} onChange={(e) => setAmount(e.target.value)} />
       <label style={lS}>¿En qué semanas llega?</label>
-      <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>{[1,2,3,4].map((w) => <button key={w} onClick={() => toggleWeek(w)} style={{ flex: 1, padding: 10, borderRadius: 10, border: weeks.includes(w) ? "1.5px solid #D87554" : "1px solid #E5DFD0", background: weeks.includes(w) ? "#FBEEE8" : "#fff", fontSize: 13, fontWeight: 600, color: "#1C2541" }}>S{w}</button>)}</div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 16 }}>{allWeeks.map((w) => <button key={w} onClick={() => toggleWeek(w)} style={{ flex: "1 0 20%", padding: 10, borderRadius: 10, border: weeks.includes(w) ? "1.5px solid #D87554" : "1px solid #E5DFD0", background: weeks.includes(w) ? "#FBEEE8" : "#fff", fontSize: 13, fontWeight: 600, color: "#1C2541" }}>S{w}</button>)}</div>
       <button onClick={submit} style={{ width: "100%", padding: 14, background: "#1C2541", color: "#F7F4EC", border: "none", borderRadius: 12, fontSize: 14, fontWeight: 600 }}>Guardar</button>
     </ModalShell>
   );
