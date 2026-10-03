@@ -215,7 +215,13 @@ export default function FinanzasApp() {
     persistMovements(n);
   };
   const addIncomeTemplate = (i) => { const n = [...incomeTemplate, { ...i, id: "inc_" + Date.now() }]; setIncomeTemplate(n); persist("incomeTemplate", n); };
-  const deleteIncomeTemplate = (id) => { const n = incomeTemplate.filter((i) => i.id !== id); setIncomeTemplate(n); persist("incomeTemplate", n); const na = asignaciones.filter((a) => a.incomeTemplateId !== id); setAsignaciones(na); persist("asignaciones", na); };
+  const updateIncomeTemplate = (id, patch) => { const n = incomeTemplate.map((i) => i.id === id ? { ...i, ...patch } : i); setIncomeTemplate(n); persist("incomeTemplate", n); };
+  // No se borran las asignaciones/compromisos ligados a este ingreso: un
+  // ingreso recurrente es compartido por todos los ciclos, así que borrarlo
+  // borraría en cascada datos de meses que no se están viendo. Quedan
+  // "huérfanos" (como ya pasaba con los compromisos) y se muestran con
+  // aviso en Apartados para reasignarlos o borrarlos a mano si se quiere.
+  const deleteIncomeTemplate = (id) => { const n = incomeTemplate.filter((i) => i.id !== id); setIncomeTemplate(n); persist("incomeTemplate", n); };
   const addAsignacion = (a) => { const n = [...asignaciones, { ...a, id: "asg_" + Date.now() }]; setAsignaciones(n); persist("asignaciones", n); };
   const deleteAsignacion = (id) => { const n = asignaciones.filter((a) => a.id !== id); setAsignaciones(n); persist("asignaciones", n); };
 
@@ -345,7 +351,7 @@ export default function FinanzasApp() {
       <div style={{ maxWidth: 720, margin: "0 auto", padding: "20px 20px 100px" }}>
         {error && <div style={{ background: "#B1645B", color: "#fff", padding: 10, borderRadius: 8, marginBottom: 16, fontSize: 13, display: "flex", justifyContent: "space-between" }}>{error}<button onClick={() => setError(null)} style={{ background: "none", border: "none", color: "#fff" }}><X size={14} /></button></div>}
         {tab === "presupuesto" && <PresupuestoView budgetCategories={budgetCategories} movements={movements} compromisos={compromisos} accounts={accounts} periodo={periodo} ciclo={ciclo} onUpdateBudget={updateSubcategoryBudget} onAddSubcategory={addSubcategory} onDeleteSubcategory={deleteSubcategory} onAddCategory={addCategory} onDeleteCategory={deleteCategory} onDelete={deleteMovement} onEdit={setEditingMov} />}
-        {tab === "apartados" && <ApartadosView key={ciclo.pago} accounts={accounts} movements={movements} budgetCategories={budgetCategories} incomeTemplate={incomeTemplate} asignaciones={asignaciones} compromisos={compromisos} ciclo={ciclo} semanasApartado={semanasApartado} apartadoRango={apartadoRango} onSaveApartadoRango={(start, end) => saveApartadoRango(ciclo.pago, start, end)} onAddIncome={addIncomeTemplate} onDeleteIncome={deleteIncomeTemplate} onAddAsignacion={addAsignacion} onDeleteAsignacion={deleteAsignacion} onAddCompromiso={addCompromiso} onDeleteCompromiso={deleteCompromiso} onTogglePaidCompromiso={toggleCompromisoPaid} />}
+        {tab === "apartados" && <ApartadosView key={ciclo.pago} accounts={accounts} movements={movements} budgetCategories={budgetCategories} incomeTemplate={incomeTemplate} asignaciones={asignaciones} compromisos={compromisos} ciclo={ciclo} semanasApartado={semanasApartado} apartadoRango={apartadoRango} onSaveApartadoRango={(start, end) => saveApartadoRango(ciclo.pago, start, end)} onAddIncome={addIncomeTemplate} onUpdateIncome={updateIncomeTemplate} onDeleteIncome={deleteIncomeTemplate} onAddAsignacion={addAsignacion} onDeleteAsignacion={deleteAsignacion} onAddCompromiso={addCompromiso} onDeleteCompromiso={deleteCompromiso} onTogglePaidCompromiso={toggleCompromisoPaid} />}
         {tab === "cuentas" && <CuentasView accounts={accounts} movements={movements} budgetCategories={budgetCategories} ciclo={ciclo} semanasGasto={semanasGasto} onAddAccount={() => setShowAddAcc(true)} onDeleteAccount={deleteAccount} />}
       </div>
 
@@ -606,10 +612,11 @@ function AddCategoryInline({ onCancel, onSave }) {
 }
 
 
-function ApartadosView({ accounts, movements, budgetCategories, incomeTemplate, asignaciones, compromisos, ciclo, semanasApartado, apartadoRango, onSaveApartadoRango, onAddIncome, onDeleteIncome, onAddAsignacion, onDeleteAsignacion, onAddCompromiso, onDeleteCompromiso, onTogglePaidCompromiso }) {
+function ApartadosView({ accounts, movements, budgetCategories, incomeTemplate, asignaciones, compromisos, ciclo, semanasApartado, apartadoRango, onSaveApartadoRango, onAddIncome, onUpdateIncome, onDeleteIncome, onAddAsignacion, onDeleteAsignacion, onAddCompromiso, onDeleteCompromiso, onTogglePaidCompromiso }) {
   const creditAccounts = accounts.filter((a) => a.type === "Crédito");
   const debitAccounts = accounts.filter((a) => a.type === "Débito");
   const [showAddIncome, setShowAddIncome] = useState(false);
+  const [editingIncome, setEditingIncome] = useState(null);
   const [assignFor, setAssignFor] = useState(null);
   const [addingCompromisoFor, setAddingCompromisoFor] = useState(null); // weekIdx
   const [editRango, setEditRango] = useState(false);
@@ -766,9 +773,9 @@ function ApartadosView({ accounts, movements, budgetCategories, incomeTemplate, 
                   })
               }
 
-              {/* Compromisos cuyo ingreso recurrente ya no existe (se borró o
-                  se recreó con otro id) — sin esto quedaban contando en el
-                  total de Presupuesto pero invisibles aquí. */}
+              {/* Compromisos y asignaciones cuyo ingreso recurrente ya no
+                  existe (se borró) — sin esto quedaban contando en el total
+                  pero invisibles aquí. */}
               {(() => {
                 const huerfanos = compromisosWeek.filter((c) => !incomesThisWeek.some((inc) => inc.id === c.incomeTemplateId));
                 if (huerfanos.length === 0) return null;
@@ -776,6 +783,30 @@ function ApartadosView({ accounts, movements, budgetCategories, incomeTemplate, 
                   <div style={{ padding: "10px 16px", borderTop: "1px solid #F0ECE0", background: "#FEF3CD" }}>
                     <div style={{ fontSize: 10, color: "#7A6020", fontWeight: 600, marginBottom: 2 }}>⚠️ Sin ingreso asignado (el ingreso original ya no existe)</div>
                     {huerfanos.map((c) => <CompromisoRow key={c.id} c={c} budgetCategories={budgetCategories} onTogglePaidCompromiso={onTogglePaidCompromiso} onDeleteCompromiso={onDeleteCompromiso} />)}
+                  </div>
+                );
+              })()}
+              {(() => {
+                const asigHuerfanas = asignacionesWeek.filter((a) => !incomesThisWeek.some((inc) => inc.id === a.incomeTemplateId));
+                if (asigHuerfanas.length === 0) return null;
+                return (
+                  <div style={{ padding: "10px 16px", borderTop: "1px solid #F0ECE0", background: "#FEF3CD" }}>
+                    <div style={{ fontSize: 10, color: "#7A6020", fontWeight: 600, marginBottom: 2 }}>⚠️ Asignado a tarjeta sin ingreso (el ingreso original ya no existe)</div>
+                    {asigHuerfanas.map((a) => {
+                      const credAcc = accounts.find((x) => x.id === a.creditAccountId);
+                      return (
+                        <div key={a.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 0", fontSize: 12 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6, color: "#7A6020" }}>
+                            <div style={{ width: 6, height: 6, borderRadius: "50%", background: credAcc?.color }} />
+                            → {credAcc?.name}
+                          </div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <span style={{ fontWeight: 600 }}>{fmt(a.amount)}</span>
+                            <button onClick={() => onDeleteAsignacion(a.id)} style={{ background: "none", border: "none", color: "#C9BFA8" }}><X size={12} /></button>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 );
               })()}
@@ -800,13 +831,16 @@ function ApartadosView({ accounts, movements, budgetCategories, incomeTemplate, 
           {incomeTemplate.map((inc) => (
             <div key={inc.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", fontSize: 12, color: "#7A7568" }}>
               <span>{inc.person} · {fmt(inc.amount)} · sem {inc.weeks.join(", ")}</span>
-              <button onClick={() => onDeleteIncome(inc.id)} style={{ background: "none", border: "none", color: "#C9BFA8" }}><Trash2 size={12} /></button>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <button onClick={() => setEditingIncome(inc)} style={{ background: "none", border: "none", color: "#D87554", fontSize: 11, fontWeight: 600 }}>Editar</button>
+                <button onClick={() => onDeleteIncome(inc.id)} style={{ background: "none", border: "none", color: "#C9BFA8" }}><Trash2 size={12} /></button>
+              </div>
             </div>
           ))}
         </div>
       )}
 
-      {showAddIncome && <AddIncomeModal accounts={debitAccounts} numWeeks={semanasApartado.length} onClose={() => setShowAddIncome(false)} onSave={(inc) => { onAddIncome(inc); setShowAddIncome(false); }} />}
+      {(showAddIncome || editingIncome) && <AddIncomeModal accounts={debitAccounts} numWeeks={semanasApartado.length} initial={editingIncome} onClose={() => { setShowAddIncome(false); setEditingIncome(null); }} onSave={(inc) => { if (editingIncome) onUpdateIncome(editingIncome.id, inc); else onAddIncome(inc); setShowAddIncome(false); setEditingIncome(null); }} />}
       {assignFor && <AssignModal info={assignFor} creditAccounts={creditAccounts} deudaPendiente={(accId) => Math.max(0, totalDeudaFor(accId) - asignadoFor(accId))} onClose={() => setAssignFor(null)} onSave={(creditAccountId, amount) => { onAddAsignacion({ pagoISO: ciclo.pago, weekIdx: assignFor.weekIdx, incomeTemplateId: assignFor.incomeId, creditAccountId, amount }); setAssignFor(null); }} />}
       {addingCompromisoFor && <CompromisoModal info={addingCompromisoFor} budgetCategories={budgetCategories} onClose={() => setAddingCompromisoFor(null)} onSave={(label, amount, categoryId, subcategoryId) => { onAddCompromiso({ pagoISO: ciclo.pago, weekIdx: addingCompromisoFor.weekIdx, incomeTemplateId: addingCompromisoFor.incomeId, label, amount, categoryId, subcategoryId }); setAddingCompromisoFor(null); }} />}
     </div>
@@ -1000,13 +1034,13 @@ function CompromisoModal({ info, budgetCategories, onClose, onSave }) {
   );
 }
 
-function AddIncomeModal({ accounts, numWeeks, onClose, onSave }) {
+function AddIncomeModal({ accounts, numWeeks, initial, onClose, onSave }) {
   const allWeeks = useMemo(() => Array.from({ length: numWeeks || 4 }, (_, i) => i + 1), [numWeeks]);
-  const [person, setPerson] = useState(""); const [accountId, setAccountId] = useState(accounts[0]?.id || ""); const [amount, setAmount] = useState(""); const [weeks, setWeeks] = useState(allWeeks);
+  const [person, setPerson] = useState(initial?.person || ""); const [accountId, setAccountId] = useState(initial?.accountId || accounts[0]?.id || ""); const [amount, setAmount] = useState(initial?.amount ?? ""); const [weeks, setWeeks] = useState(initial?.weeks || allWeeks);
   const toggleWeek = (w) => setWeeks((p) => p.includes(w) ? p.filter((x) => x !== w) : [...p, w].sort());
   const submit = () => { if (!person || !amount || !accountId || weeks.length === 0) return; onSave({ person, accountId, amount: Number(amount), weeks }); };
   return (
-    <ModalShell title="Ingreso recurrente" onClose={onClose}>
+    <ModalShell title={initial ? "Editar ingreso recurrente" : "Ingreso recurrente"} onClose={onClose}>
       <label style={lS}>¿Quién?</label><input style={iS} type="text" placeholder="Ej. Leo, Ceci…" value={person} onChange={(e) => setPerson(e.target.value)} />
       <label style={lS}>Cuenta de débito</label>
       <select style={iS} value={accountId} onChange={(e) => setAccountId(e.target.value)}>{accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select>
