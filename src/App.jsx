@@ -623,6 +623,10 @@ function ApartadosView({ accounts, movements, budgetCategories, incomeTemplate, 
   const [tempStart, setTempStart] = useState(apartadoRango.start);
   const [tempEnd, setTempEnd] = useState(apartadoRango.end);
 
+  // Los ingresos recurrentes son propios de cada ciclo: cada mes se
+  // configuran a mano porque el monto varía.
+  const incomesThisCycle = incomeTemplate.filter((i) => i.pagoISO === ciclo.pago);
+
   const totalDeudaFor = (accId) => movements
     .filter((m) => m.accountId === accId && m.kind === "gasto" && m.date >= ciclo.inicio && m.date <= ciclo.finGasto)
     .reduce((s, m) => s + Number(m.amount), 0);
@@ -701,7 +705,7 @@ function ApartadosView({ accounts, movements, budgetCategories, incomeTemplate, 
       <div style={{ display: "grid", gap: 14, marginBottom: 16 }}>
         {semanasApartado.map((w, i) => {
           const weekIdx = i + 1;
-          const incomesThisWeek = incomeTemplate.filter((inc) => inc.weeks.includes(weekIdx));
+          const incomesThisWeek = incomesThisCycle.filter((inc) => inc.weeks.includes(weekIdx));
           const totalIncomeWeek = incomesThisWeek.reduce((s, inc) => s + Number(inc.amount), 0);
           const asignacionesWeek = asignaciones.filter((a) => a.pagoISO === ciclo.pago && a.weekIdx === weekIdx);
           const totalAsignadoTarjetas = asignacionesWeek.reduce((s, a) => s + Number(a.amount), 0);
@@ -824,11 +828,11 @@ function ApartadosView({ accounts, movements, budgetCategories, incomeTemplate, 
         })}
       </div>
 
-      {/* Ingresos configurados */}
-      {incomeTemplate.length > 0 && (
+      {/* Ingresos configurados (propios de este ciclo) */}
+      {incomesThisCycle.length > 0 && (
         <div style={{ marginBottom: 8 }}>
-          <div style={{ fontSize: 11, color: "#A39E8F", marginBottom: 6 }}>Ingresos recurrentes:</div>
-          {incomeTemplate.map((inc) => (
+          <div style={{ fontSize: 11, color: "#A39E8F", marginBottom: 6 }}>Ingresos de este mes:</div>
+          {incomesThisCycle.map((inc) => (
             <div key={inc.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", fontSize: 12, color: "#7A7568" }}>
               <span>{inc.person} · {fmt(inc.amount)} · sem {inc.weeks.join(", ")}</span>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -840,7 +844,7 @@ function ApartadosView({ accounts, movements, budgetCategories, incomeTemplate, 
         </div>
       )}
 
-      {(showAddIncome || editingIncome) && <AddIncomeModal accounts={debitAccounts} numWeeks={semanasApartado.length} initial={editingIncome} onClose={() => { setShowAddIncome(false); setEditingIncome(null); }} onSave={(inc) => { if (editingIncome) onUpdateIncome(editingIncome.id, inc); else onAddIncome(inc); setShowAddIncome(false); setEditingIncome(null); }} />}
+      {(showAddIncome || editingIncome) && <AddIncomeModal accounts={debitAccounts} numWeeks={semanasApartado.length} initial={editingIncome} onClose={() => { setShowAddIncome(false); setEditingIncome(null); }} onSave={(inc) => { if (editingIncome) onUpdateIncome(editingIncome.id, inc); else onAddIncome({ ...inc, pagoISO: ciclo.pago }); setShowAddIncome(false); setEditingIncome(null); }} />}
       {assignFor && <AssignModal info={assignFor} creditAccounts={creditAccounts} deudaPendiente={(accId) => Math.max(0, totalDeudaFor(accId) - asignadoFor(accId))} onClose={() => setAssignFor(null)} onSave={(creditAccountId, amount) => { onAddAsignacion({ pagoISO: ciclo.pago, weekIdx: assignFor.weekIdx, incomeTemplateId: assignFor.incomeId, creditAccountId, amount }); setAssignFor(null); }} />}
       {addingCompromisoFor && <CompromisoModal info={addingCompromisoFor} budgetCategories={budgetCategories} onClose={() => setAddingCompromisoFor(null)} onSave={(label, amount, categoryId, subcategoryId) => { onAddCompromiso({ pagoISO: ciclo.pago, weekIdx: addingCompromisoFor.weekIdx, incomeTemplateId: addingCompromisoFor.incomeId, label, amount, categoryId, subcategoryId }); setAddingCompromisoFor(null); }} />}
     </div>
